@@ -84,10 +84,6 @@ class DashboardService:
                 upload_filename = log_item.filename
 
         if upload_id is None:
-            default_history = [
-                EvolutionPoint(semana=f"Sem {i+1}", valor=135.0 + (i * 1.2), display_val=f"R$ {135.0 + (i * 1.2):.1f}M")
-                for i in range(12)
-            ]
             return DashboardSummaryResponse(
                 upload_id=None,
                 upload_filename=None,
@@ -98,67 +94,60 @@ class DashboardService:
                 latest_investment_date=None,
                 total_debts=Decimal("0.00"),
                 latest_debt_date=None,
-                net_worth=Decimal("148500000.00"),
-                weekly_variation_val=Decimal("1100000.00"),
-                weekly_variation_pct=0.75,
-                accumulated_variation_val=Decimal("13500000.00"),
-                accumulated_variation_pct=10.0,
-                cdi_weekly_pp=0.22,
-                cdi_weekly_pct_cdi=200.0,
-                cdi_accumulated_pp=3.60,
-                cdi_accumulated_pct_cdi=132.0,
-                evolution_history=default_history
+                net_worth=Decimal("0.00"),
+                weekly_variation_val=Decimal("0.00"),
+                weekly_variation_pct=0.0,
+                accumulated_variation_val=Decimal("0.00"),
+                accumulated_variation_pct=0.0,
+                cdi_weekly_pp=0.0,
+                cdi_weekly_pct_cdi=0.0,
+                cdi_accumulated_pp=0.0,
+                cdi_accumulated_pct_cdi=0.0,
+                evolution_history=[]
             )
 
         current_data = DashboardService._compute_net_worth_for_upload(db, upload_id)
         current_nw = current_data["net_worth"]
 
-        # Calculate weekly variation by comparing with previous upload_id in database
+        # 100% Real Weekly variation by comparing with previous upload in DB
         prev_log = db.query(ExcelUploadLog).filter(ExcelUploadLog.id < upload_id).order_by(ExcelUploadLog.id.desc()).first()
         if prev_log:
             prev_nw = DashboardService._compute_net_worth_for_upload(db, prev_log.id)["net_worth"]
             weekly_var_val = current_nw - prev_nw
-            weekly_var_pct = float((weekly_var_val / prev_nw) * 100) if prev_nw > 0 else 0.75
+            weekly_var_pct = float((weekly_var_val / prev_nw) * 100) if prev_nw > 0 else 0.0
         else:
-            weekly_var_val = Decimal("1100000.00")
-            weekly_var_pct = 0.75
+            weekly_var_val = Decimal("0.00")
+            weekly_var_pct = 0.0
 
-        # Calculate accumulated variation
+        # 100% Real Accumulated variation by comparing with first upload in DB
         first_log = all_logs[0] if all_logs else None
         if first_log and first_log.id != upload_id:
             first_nw = DashboardService._compute_net_worth_for_upload(db, first_log.id)["net_worth"]
             accum_var_val = current_nw - first_nw
-            accum_var_pct = float((accum_var_val / first_nw) * 100) if first_nw > 0 else 10.0
+            accum_var_pct = float((accum_var_val / first_nw) * 100) if first_nw > 0 else 0.0
         else:
-            accum_var_val = Decimal("13500000.00")
-            accum_var_pct = 10.0
+            accum_var_val = Decimal("0.00")
+            accum_var_pct = 0.0
 
-        # Build evolution history points
+        # 100% Real Evolution history from ExcelUploadLog entries in DB
         evolution_points: List[EvolutionPoint] = []
-        if len(all_logs) > 1:
-            for idx, log in enumerate(all_logs):
-                nw = DashboardService._compute_net_worth_for_upload(db, log.id)["net_worth"]
-                val_in_millions = float(nw) / 1_000_000.0
-                evolution_points.append(
-                    EvolutionPoint(
-                        semana=f"Lote {log.id}",
-                        valor=round(val_in_millions, 1),
-                        display_val=f"R$ {val_in_millions:.1f}M"
-                    )
+        for log in all_logs:
+            nw = DashboardService._compute_net_worth_for_upload(db, log.id)["net_worth"]
+            val_in_millions = float(nw) / 1_000_000.0
+            display_name = log.filename.split('.')[0] if log.filename else f"Lote #{log.id}"
+            evolution_points.append(
+                EvolutionPoint(
+                    semana=display_name[:12],
+                    valor=round(val_in_millions, 2),
+                    display_val=f"R$ {float(nw):,.0f}".replace(',', '.')
                 )
-        else:
-            current_m = float(current_nw) / 1_000_000.0
-            base_m = current_m - 13.5
-            step = 13.5 / 11.0
-            for i in range(12):
-                val_m = base_m + (step * i)
-                evolution_points.append(
-                    EvolutionPoint(
-                        semana=f"Sem {i+1}",
-                        valor=round(val_m, 1),
-                        display_val=f"R$ {val_m:.1f}M"
-                    )
-                )
+            )
+
+        # Compute investment yield average if available
+        inv_avg_yield = db.query(func.avg(FinancialInvestment.yield_percentage)).filter(
+            FinancialInvestment.upload_id == upload_id
+        ).scalar()
+        avg_yield = float(inv_avg_yield) if inv_avg_yield is not None else 0.0
 
         return DashboardSummaryResponse(
             upload_id=upload_id,
@@ -175,10 +164,10 @@ class DashboardService:
             weekly_variation_pct=weekly_var_pct,
             accumulated_variation_val=accum_var_val,
             accumulated_variation_pct=accum_var_pct,
-            cdi_weekly_pp=0.22,
-            cdi_weekly_pct_cdi=200.0,
-            cdi_accumulated_pp=3.60,
-            cdi_accumulated_pct_cdi=132.0,
+            cdi_weekly_pp=round(avg_yield, 2),
+            cdi_weekly_pct_cdi=round(avg_yield * 100, 1) if avg_yield else 0.0,
+            cdi_accumulated_pp=round(avg_yield, 2),
+            cdi_accumulated_pct_cdi=round(avg_yield * 100, 1) if avg_yield else 0.0,
             evolution_history=evolution_points
         )
 
