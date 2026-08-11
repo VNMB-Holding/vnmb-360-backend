@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, List
 
 from app.db.session import get_db
 from app.services.dashboard import DashboardService
-from app.schemas.summary import DashboardSummaryResponse
+from app.schemas.summary import DashboardSummaryResponse, EvolutionPoint
 
 router = APIRouter()
 
@@ -14,3 +14,9 @@ def get_dashboard_summary(
     db: Session = Depends(get_db)
 ):
     return DashboardService.get_summary(db, upload_id=upload_id)
+
+@router.get("/dashboard/history", response_model=List[EvolutionPoint])
+def get_dashboard_history(
+    db: Session = Depends(get_db)
+):
+    return DashboardService.get_history(db)
