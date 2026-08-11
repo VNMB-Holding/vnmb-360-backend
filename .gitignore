@@ -1,0 +1,26 @@
+# Python Virtual Environment
+venv/
+env/
+.venv/
+
+# Environment Variables & Secrets
+.env
+
+# Databases & Local Artifacts
+*.db
+*.sqlite
+*.sqlite3
+sample_*.xlsx
+*.log
+
+# Byte-compiled / Cache files
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE files
+.vscode/
+.idea/
