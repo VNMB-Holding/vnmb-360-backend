@@ -31,6 +31,7 @@ class DashboardService:
         ).scalar()
         live_total = Decimal(str(live_total))
 
+        # Investments: use the latest reference_date snapshot
         latest_inv_date = db.query(func.max(FinancialInvestment.reference_date)).filter(
             FinancialInvestment.upload_id == upload_id
         ).scalar()
@@ -43,6 +44,7 @@ class DashboardService:
         else:
             inv_total = Decimal("0.00")
 
+        # Debts: use the latest reference_date snapshot
         latest_debt_date = db.query(func.max(DebtControl.reference_date)).filter(
             DebtControl.upload_id == upload_id
         ).scalar()
@@ -83,6 +85,7 @@ class DashboardService:
             if log_item:
                 upload_filename = log_item.filename
 
+        # No uploads in DB at all — return all zeros, no mocks
         if upload_id is None:
             return DashboardSummaryResponse(
                 upload_id=None,
@@ -109,8 +112,13 @@ class DashboardService:
         current_data = DashboardService._compute_net_worth_for_upload(db, upload_id)
         current_nw = current_data["net_worth"]
 
-        # 100% Real Weekly variation by comparing with previous upload in DB
-        prev_log = db.query(ExcelUploadLog).filter(ExcelUploadLog.id < upload_id).order_by(ExcelUploadLog.id.desc()).first()
+        # Weekly variation: compare with the immediately previous upload
+        prev_log = (
+            db.query(ExcelUploadLog)
+            .filter(ExcelUploadLog.id < upload_id)
+            .order_by(ExcelUploadLog.id.desc())
+            .first()
+        )
         if prev_log:
             prev_nw = DashboardService._compute_net_worth_for_upload(db, prev_log.id)["net_worth"]
             weekly_var_val = current_nw - prev_nw
@@ -119,7 +127,7 @@ class DashboardService:
             weekly_var_val = Decimal("0.00")
             weekly_var_pct = 0.0
 
-        # 100% Real Accumulated variation by comparing with first upload in DB
+        # Accumulated variation: compare with the very first upload
         first_log = all_logs[0] if all_logs else None
         if first_log and first_log.id != upload_id:
             first_nw = DashboardService._compute_net_worth_for_upload(db, first_log.id)["net_worth"]
@@ -129,25 +137,26 @@ class DashboardService:
             accum_var_val = Decimal("0.00")
             accum_var_pct = 0.0
 
-        # 100% Real Evolution history from ExcelUploadLog entries in DB
+        # Evolution history: one point per upload log, labelled by filename
         evolution_points: List[EvolutionPoint] = []
         for log in all_logs:
             nw = DashboardService._compute_net_worth_for_upload(db, log.id)["net_worth"]
             val_in_millions = float(nw) / 1_000_000.0
-            display_name = log.filename.split('.')[0] if log.filename else f"Lote #{log.id}"
+            label = log.filename.split('.')[0][:12] if log.filename else f"Lote {log.id}"
             evolution_points.append(
                 EvolutionPoint(
-                    semana=display_name[:12],
+                    semana=label,
                     valor=round(val_in_millions, 2),
-                    display_val=f"R$ {float(nw):,.0f}".replace(',', '.')
+                    display_val=f"R$ {float(nw):,.2f}"
                 )
             )
 
-        # Compute investment yield average if available
-        inv_avg_yield = db.query(func.avg(FinancialInvestment.yield_percentage)).filter(
-            FinancialInvestment.upload_id == upload_id
+        # CDI benchmark: use avg_cdi_percentage from DebtControl if available
+        # (FinancialInvestment model has no yield_percentage field)
+        avg_cdi = db.query(func.avg(DebtControl.avg_cdi_percentage)).filter(
+            DebtControl.upload_id == upload_id
         ).scalar()
-        avg_yield = float(inv_avg_yield) if inv_avg_yield is not None else 0.0
+        avg_cdi_val = float(avg_cdi) if avg_cdi is not None else 0.0
 
         return DashboardSummaryResponse(
             upload_id=upload_id,
@@ -161,13 +170,13 @@ class DashboardService:
             latest_debt_date=current_data["latest_debt_date"],
             net_worth=current_nw,
             weekly_variation_val=weekly_var_val,
-            weekly_variation_pct=weekly_var_pct,
+            weekly_variation_pct=round(weekly_var_pct, 2),
             accumulated_variation_val=accum_var_val,
-            accumulated_variation_pct=accum_var_pct,
-            cdi_weekly_pp=round(avg_yield, 2),
-            cdi_weekly_pct_cdi=round(avg_yield * 100, 1) if avg_yield else 0.0,
-            cdi_accumulated_pp=round(avg_yield, 2),
-            cdi_accumulated_pct_cdi=round(avg_yield * 100, 1) if avg_yield else 0.0,
+            accumulated_variation_pct=round(accum_var_pct, 2),
+            cdi_weekly_pp=round(avg_cdi_val, 2),
+            cdi_weekly_pct_cdi=round(avg_cdi_val, 2),
+            cdi_accumulated_pp=round(avg_cdi_val, 2),
+            cdi_accumulated_pct_cdi=round(avg_cdi_val, 2),
             evolution_history=evolution_points
         )
 
