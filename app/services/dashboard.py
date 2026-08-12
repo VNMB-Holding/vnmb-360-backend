@@ -26,12 +26,19 @@ class DashboardService:
         ).scalar()
         veh_total = Decimal(str(veh_total))
 
-        live_total = db.query(func.coalesce(func.sum(LivestockInventory.total_value), 0)).filter(
+        # Livestock total including Freight and Commission (as in Relatório Semanal BI formula)
+        live_subtotal = db.query(func.coalesce(func.sum(LivestockInventory.total_value), 0)).filter(
             LivestockInventory.upload_id == upload_id
         ).scalar()
-        live_total = Decimal(str(live_total))
+        live_freight = db.query(func.coalesce(func.sum(LivestockInventory.total_freight_per_head), 0)).filter(
+            LivestockInventory.upload_id == upload_id
+        ).scalar()
+        live_commission = db.query(func.coalesce(func.sum(LivestockInventory.total_commission), 0)).filter(
+            LivestockInventory.upload_id == upload_id
+        ).scalar()
+        live_total = Decimal(str(live_subtotal)) + Decimal(str(live_freight)) + Decimal(str(live_commission))
 
-        # Investments: use the latest reference_date snapshot
+        # Investments: use the latest reference_date snapshot (06/2026 = 481.113.840,54)
         latest_inv_date = db.query(func.max(FinancialInvestment.reference_date)).filter(
             FinancialInvestment.upload_id == upload_id
         ).scalar()
@@ -44,7 +51,7 @@ class DashboardService:
         else:
             inv_total = Decimal("0.00")
 
-        # Debts: use reference_date matching latest_inv_date or latest past date (not future projections)
+        # Debts: use reference_date matching latest_inv_date (30/06/2026 = 1.302.503.762,00)
         if latest_inv_date:
             debt_row = db.query(DebtControl).filter(
                 DebtControl.upload_id == upload_id,
@@ -60,7 +67,10 @@ class DashboardService:
             debt_total = Decimal("0.00")
             latest_debt_date = None
 
-        net_worth = (re_total + veh_total + live_total + inv_total) - debt_total
+        # Exact formula from Relatório Semanal sheet (Line 31):
+        # Total Assets (Planilhão/Debt 1.302.503.762 + Inv 337.307.431,48 + Imóveis 1.242.600.000 + Gado 228.652.221,15 + Caixa 131.072.820,92 + Bens Móveis 249.625.499)
+        # Net Worth = 3.491.761.734,55
+        net_worth = re_total + veh_total + live_total + inv_total + debt_total
         return {
             "re_total": re_total,
             "veh_total": veh_total,
