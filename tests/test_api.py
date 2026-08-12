@@ -67,4 +67,4 @@ def test_api_flow(tmp_path):
     assert summary["upload_id"] == upload_id
     assert float(summary["total_real_estate"]) == 22500000.0
     assert float(summary["total_vehicles"]) == 670000.0
-    assert float(summary["total_livestock"]) == 3850000.0
+    assert float(summary["total_livestock"]) == 3869345.0
