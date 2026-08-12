@@ -16,6 +16,7 @@ class DashboardSummaryResponse(BaseModel):
     total_livestock: Decimal
     total_investments: Decimal
     latest_investment_date: Optional[date] = None
+    total_caixa: Decimal = Decimal("0.00")
     total_debts: Decimal
     latest_debt_date: Optional[date] = None
     net_worth: Decimal

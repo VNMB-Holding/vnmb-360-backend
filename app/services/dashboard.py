@@ -68,15 +68,27 @@ class DashboardService:
             debt_total = Decimal("0.00")
             latest_debt_date = None
 
+        # Caixa total from FinancialInvestment if stored under 'CAIXA' asset_name
+        if latest_inv_date:
+            caixa_row = db.query(func.coalesce(func.sum(FinancialInvestment.amount), 0)).filter(
+                FinancialInvestment.upload_id == upload_id,
+                FinancialInvestment.reference_date == latest_inv_date,
+                FinancialInvestment.asset_name == 'CAIXA'
+            ).scalar()
+            caixa_total = Decimal(str(caixa_row))
+        else:
+            caixa_total = Decimal("0.00")
+
         # Exact formula from Relatório Semanal sheet (Line 31):
-        # Total Assets (Planilhão/Debt 1.302.503.762 + Inv 337.307.431,48 + Imóveis 1.242.600.000 + Gado 228.652.221,15 + Caixa 131.072.820,92 + Bens Móveis 249.625.499)
+        # Total Assets = Planilhão (1.302.503.762,00) + Investimentos (337.307.431,48) + Imóveis (1.242.600.000,00) + Estoque Gado (228.652.221,15) + Caixa (131.072.820,92) + Bens Móveis (249.625.499,00)
         # Net Worth = 3.491.761.734,55
-        net_worth = re_total + veh_total + live_total + inv_total + debt_total
+        net_worth = debt_total + (inv_total - caixa_total) + re_total + live_total + caixa_total + veh_total
         return {
             "re_total": re_total,
             "veh_total": veh_total,
             "live_total": live_total,
             "inv_total": inv_total,
+            "caixa_total": caixa_total,
             "latest_inv_date": latest_inv_date,
             "debt_total": debt_total,
             "latest_debt_date": latest_debt_date,
@@ -180,6 +192,7 @@ class DashboardService:
             total_livestock=current_data["live_total"],
             total_investments=current_data["inv_total"],
             latest_investment_date=current_data["latest_inv_date"],
+            total_caixa=current_data["caixa_total"],
             total_debts=current_data["debt_total"],
             latest_debt_date=current_data["latest_debt_date"],
             net_worth=current_nw,
