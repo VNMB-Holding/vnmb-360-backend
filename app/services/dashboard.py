@@ -46,7 +46,7 @@ class DashboardService:
             inv_total = db.query(func.coalesce(func.sum(FinancialInvestment.amount), 0)).filter(
                 FinancialInvestment.upload_id == upload_id,
                 FinancialInvestment.reference_date == latest_inv_date,
-                ~FinancialInvestment.asset_name.in_(['INVESTIMENTOS', 'CAIXA'])
+                ~FinancialInvestment.asset_name.in_(['INVESTIMENTOS', 'CAIXA', 'Offshore (VB AGRO) - BTG'])
             ).scalar()
             inv_total = Decimal(str(inv_total))
         else:
