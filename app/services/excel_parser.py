@@ -162,7 +162,7 @@ class ExcelParserService:
         for _, row in df.iterrows():
             asset_name = str(row.get(asset_col, '')).strip()
             norm_name = normalize_str(asset_name)
-            if not asset_name or norm_name in ['TOTAL', 'CHECK', 'NAN', 'NONE'] or norm_name.startswith('TOTAL') or str(asset_col).startswith('Unnamed:'):
+            if not asset_name or norm_name in ['TOTAL', 'CHECK', 'NAN', 'NONE', 'INVESTIMENTOS', 'CAIXA'] or norm_name.startswith('TOTAL') or str(asset_col).startswith('Unnamed:'):
                 continue
 
             for dc in date_cols:
@@ -339,7 +339,7 @@ class ExcelParserService:
                         'license_plate': None,
                         'risk_region': 'AÉREO',
                         'assigned_to': 'VNMB',
-                        'market_value': brl_val,
+                        'market_value': 0.0,
                         'annual_premium': None,
                         'iof_tax': None,
                         'insurance_value': usd_val,

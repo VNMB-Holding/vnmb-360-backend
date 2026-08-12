@@ -44,18 +44,21 @@ class DashboardService:
         else:
             inv_total = Decimal("0.00")
 
-        # Debts: use the latest reference_date snapshot
-        latest_debt_date = db.query(func.max(DebtControl.reference_date)).filter(
-            DebtControl.upload_id == upload_id
-        ).scalar()
-        if latest_debt_date:
-            debt_total = db.query(func.coalesce(func.sum(DebtControl.final_balance), 0)).filter(
+        # Debts: use reference_date matching latest_inv_date or latest past date (not future projections)
+        if latest_inv_date:
+            debt_row = db.query(DebtControl).filter(
                 DebtControl.upload_id == upload_id,
-                DebtControl.reference_date == latest_debt_date
-            ).scalar()
-            debt_total = abs(Decimal(str(debt_total)))
+                DebtControl.reference_date <= latest_inv_date
+            ).order_by(DebtControl.reference_date.desc()).first()
+            if debt_row and debt_row.final_balance:
+                debt_total = abs(Decimal(str(debt_row.final_balance)))
+                latest_debt_date = debt_row.reference_date
+            else:
+                debt_total = Decimal("0.00")
+                latest_debt_date = None
         else:
             debt_total = Decimal("0.00")
+            latest_debt_date = None
 
         net_worth = (re_total + veh_total + live_total + inv_total) - debt_total
         return {
