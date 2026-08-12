@@ -46,7 +46,7 @@ class DashboardService:
             inv_total = db.query(func.coalesce(func.sum(FinancialInvestment.amount), 0)).filter(
                 FinancialInvestment.upload_id == upload_id,
                 FinancialInvestment.reference_date == latest_inv_date,
-                ~FinancialInvestment.asset_name.in_(['INVESTIMENTOS', 'CAIXA', 'Offshore (VB AGRO) - BTG'])
+                ~FinancialInvestment.asset_name.in_(['INVESTIMENTOS', 'CAIXA', 'Offshore (VB AGRO) - BTG', 'VB AGRO BTG'])
             ).scalar()
             inv_total = Decimal(str(inv_total))
         else:
@@ -87,7 +87,8 @@ class DashboardService:
         else:
             caixa_total = Decimal("0.00")
 
-        net_worth = debt_total + inv_total + re_total + live_total + caixa_total + veh_total
+        # Net worth formula: Planilhão (debts) + Investimentos (excl duplicatas/caixa) + Imóveis + Gado + Veículos
+        net_worth = debt_total + inv_total + re_total + live_total + veh_total
         return {
             "re_total": re_total,
             "veh_total": veh_total,
@@ -173,7 +174,11 @@ class DashboardService:
         for log in all_logs:
             nw = DashboardService._compute_net_worth_for_upload(db, log.id)["net_worth"]
             val_in_millions = float(nw) / 1_000_000.0
-            label = log.filename.split('.')[0][:12] if log.filename else f"Lote {log.id}"
+            # Use upload date for X-axis label
+            if log.uploaded_at:
+                label = log.uploaded_at.strftime("%d/%m/%Y")
+            else:
+                label = f"Lote {log.id}"
             evolution_points.append(
                 EvolutionPoint(
                     semana=label,
