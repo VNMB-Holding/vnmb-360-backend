@@ -144,37 +144,11 @@ class DashboardService:
         current_data = DashboardService._compute_net_worth_for_upload(db, upload_id)
         current_nw = current_data["net_worth"]
 
-        # Weekly variation: compare with the immediately previous upload
-        prev_log = (
-            db.query(ExcelUploadLog)
-            .filter(ExcelUploadLog.id < upload_id)
-            .order_by(ExcelUploadLog.id.desc())
-            .first()
-        )
-        if prev_log:
-            prev_nw = DashboardService._compute_net_worth_for_upload(db, prev_log.id)["net_worth"]
-            weekly_var_val = current_nw - prev_nw
-            weekly_var_pct = float((weekly_var_val / prev_nw) * 100) if prev_nw > 0 else 0.0
-        else:
-            weekly_var_val = Decimal("0.00")
-            weekly_var_pct = 0.0
-
-        # Accumulated variation: compare with the very first upload
-        first_log = all_logs[0] if all_logs else None
-        if first_log and first_log.id != upload_id:
-            first_nw = DashboardService._compute_net_worth_for_upload(db, first_log.id)["net_worth"]
-            accum_var_val = current_nw - first_nw
-            accum_var_pct = float((accum_var_val / first_nw) * 100) if first_nw > 0 else 0.0
-        else:
-            accum_var_val = Decimal("0.00")
-            accum_var_pct = 0.0
-
-        # Evolution history: one point per upload log, labelled by filename
+        # 1. Obter pontos da série histórica do lote selecionado ordenados por data
         evolution_points: List[EvolutionPoint] = []
         for log in all_logs:
             nw = DashboardService._compute_net_worth_for_upload(db, log.id)["net_worth"]
             val_in_millions = float(nw) / 1_000_000.0
-            # Use upload date for X-axis label
             if log.uploaded_at:
                 label = log.uploaded_at.strftime("%d/%m/%Y")
             else:
@@ -187,12 +161,47 @@ class DashboardService:
                 )
             )
 
-        # CDI benchmark: use avg_cdi_percentage from DebtControl if available
-        # (FinancialInvestment model has no yield_percentage field)
-        avg_cdi = db.query(func.avg(DebtControl.avg_cdi_percentage)).filter(
-            DebtControl.upload_id == upload_id
-        ).scalar()
-        avg_cdi_val = float(avg_cdi) if avg_cdi is not None else 0.0
+        # 2. Variação Semanal e Acumulada calculadas a partir dos registros de DebtControl (Planilhão) do próprio arquivo
+        debt_records = (
+            db.query(DebtControl)
+            .filter(DebtControl.upload_id == upload_id)
+            .order_by(DebtControl.reference_date.asc())
+            .all()
+        )
+
+        if len(debt_records) >= 2:
+            latest_debt = debt_records[-1]
+            prev_debt = debt_records[-2]
+            first_debt = debt_records[0]
+
+            latest_bal = Decimal(str(latest_debt.final_balance or 0))
+            prev_bal = Decimal(str(prev_debt.final_balance or 0))
+            first_bal = Decimal(str(first_debt.final_balance or 0))
+
+            weekly_var_val = latest_bal - prev_bal
+            weekly_var_pct = float((weekly_var_val / prev_bal) * 100) if prev_bal > 0 else 0.0
+
+            accum_var_val = latest_bal - first_bal
+            accum_var_pct = float((accum_var_val / first_bal) * 100) if first_bal > 0 else 0.0
+
+            # Média do % do CDI do último período e acumulado
+            latest_cdi_pct = float(latest_debt.avg_cdi_percentage or 0) * 100
+            valid_cdis = [float(d.avg_cdi_percentage) * 100 for d in debt_records if d.avg_cdi_percentage is not None]
+            avg_cdi_accum = (sum(valid_cdis) / len(valid_cdis)) if valid_cdis else 0.0
+
+            cdi_weekly_pp = latest_cdi_pct
+            cdi_weekly_pct_cdi = latest_cdi_pct
+            cdi_accum_pp = avg_cdi_accum
+            cdi_accum_pct = avg_cdi_accum
+        else:
+            weekly_var_val = Decimal("0.00")
+            weekly_var_pct = 0.0
+            accum_var_val = Decimal("0.00")
+            accum_var_pct = 0.0
+            cdi_weekly_pp = 0.0
+            cdi_weekly_pct_cdi = 0.0
+            cdi_accum_pp = 0.0
+            cdi_accum_pct = 0.0
 
         return DashboardSummaryResponse(
             upload_id=upload_id,
@@ -210,10 +219,10 @@ class DashboardService:
             weekly_variation_pct=round(weekly_var_pct, 2),
             accumulated_variation_val=accum_var_val,
             accumulated_variation_pct=round(accum_var_pct, 2),
-            cdi_weekly_pp=round(avg_cdi_val, 2),
-            cdi_weekly_pct_cdi=round(avg_cdi_val, 2),
-            cdi_accumulated_pp=round(avg_cdi_val, 2),
-            cdi_accumulated_pct_cdi=round(avg_cdi_val, 2),
+            cdi_weekly_pp=round(cdi_weekly_pp, 2),
+            cdi_weekly_pct_cdi=round(cdi_weekly_pct_cdi, 2),
+            cdi_accumulated_pp=round(cdi_accum_pp, 2),
+            cdi_accumulated_pct_cdi=round(cdi_accum_pct, 2),
             evolution_history=evolution_points
         )
 
