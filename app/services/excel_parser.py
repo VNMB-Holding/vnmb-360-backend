@@ -162,7 +162,7 @@ class ExcelParserService:
         for _, row in df.iterrows():
             asset_name = str(row.get(asset_col, '')).strip()
             norm_name = normalize_str(asset_name)
-            if not asset_name or norm_name in ['TOTAL', 'CHECK', 'NAN', 'NONE', 'INVESTIMENTOS', 'CAIXA', 'OFFSHORE (VB AGRO) - BTG'] or norm_name.startswith('TOTAL') or str(asset_col).startswith('Unnamed:'):
+            if not asset_name or norm_name in ['TOTAL', 'CHECK', 'NAN', 'NONE', 'INVESTIMENTOS', 'OFFSHORE (VB AGRO) - BTG'] or norm_name.startswith('TOTAL') or str(asset_col).startswith('Unnamed:'):
                 continue
 
             for dc in date_cols:

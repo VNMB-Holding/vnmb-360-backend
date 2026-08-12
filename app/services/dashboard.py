@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, extract
 from decimal import Decimal
 from typing import Optional, List
 
@@ -54,10 +54,18 @@ class DashboardService:
 
         # Debts: use reference_date matching latest_inv_date (30/06/2026 = 1.302.503.762,00)
         if latest_inv_date:
+            # latest_inv_date is e.g. 2026-06-01 (date object). Match debt in same month (e.g. 2026-06-30)
+            inv_year, inv_month = latest_inv_date.year, latest_inv_date.month
             debt_row = db.query(DebtControl).filter(
                 DebtControl.upload_id == upload_id,
-                DebtControl.reference_date <= latest_inv_date
-            ).order_by(DebtControl.reference_date.desc()).first()
+                extract('year', DebtControl.reference_date) == inv_year,
+                extract('month', DebtControl.reference_date) == inv_month
+            ).first()
+            if not debt_row:
+                debt_row = db.query(DebtControl).filter(
+                    DebtControl.upload_id == upload_id,
+                    DebtControl.reference_date <= latest_inv_date
+                ).order_by(DebtControl.reference_date.desc()).first()
             if debt_row and debt_row.final_balance:
                 debt_total = abs(Decimal(str(debt_row.final_balance)))
                 latest_debt_date = debt_row.reference_date
@@ -79,10 +87,7 @@ class DashboardService:
         else:
             caixa_total = Decimal("0.00")
 
-        # Exact formula from Relatório Semanal sheet (Line 31):
-        # Total Assets = Planilhão (1.302.503.762,00) + Investimentos (337.307.431,48) + Imóveis (1.242.600.000,00) + Estoque Gado (228.652.221,15) + Caixa (131.072.820,92) + Bens Móveis (249.625.499,00)
-        # Net Worth = 3.491.761.734,55
-        net_worth = debt_total + (inv_total - caixa_total) + re_total + live_total + caixa_total + veh_total
+        net_worth = debt_total + inv_total + re_total + live_total + caixa_total + veh_total
         return {
             "re_total": re_total,
             "veh_total": veh_total,
