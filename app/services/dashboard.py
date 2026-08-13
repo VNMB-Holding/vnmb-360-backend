@@ -182,42 +182,23 @@ class DashboardService:
                 )
             )
 
-        # 2. Variação Semanal e Acumulada calculadas estritamente a partir dos registros do próprio arquivo selecionado
-        if len(debt_records) >= 2:
-            latest_debt = debt_records[-1]
-            prev_debt = debt_records[-2]
-            first_debt = debt_records[0]
+        # 2. Variação Semanal e Acumulada lidas estritamente do próprio lote (sem fórmulas de subtração/divisão sintética no backend)
+        summary_metrics = {}
+        log_item = db.query(ExcelUploadLog).filter(ExcelUploadLog.id == upload_id).first() if upload_id else None
+        if log_item and log_item.summary_metrics:
+            summary_metrics = log_item.summary_metrics
 
-            latest_bal = Decimal(str(latest_debt.final_balance or 0))
-            prev_bal = Decimal(str(prev_debt.final_balance or 0))
-            first_bal = Decimal(str(first_debt.final_balance or 0))
-
-            weekly_var_val = latest_bal - prev_bal
-            weekly_var_pct = float((weekly_var_val / prev_bal) * 100) if prev_bal > 0 else 0.0
-
-            accum_var_val = latest_bal - first_bal
-            accum_var_pct = float((accum_var_val / first_bal) * 100) if first_bal > 0 else 0.0
-
-            # Média do % do CDI do próprio arquivo
-            latest_cdi_pct = float(latest_debt.avg_cdi_percentage or 0) * 100
-            valid_cdis = [float(d.avg_cdi_percentage) * 100 for d in debt_records if d.avg_cdi_percentage is not None]
-            avg_cdi_accum = (sum(valid_cdis) / len(valid_cdis)) if valid_cdis else 0.0
-
-            cdi_weekly_pp = latest_cdi_pct
-            cdi_weekly_pct_cdi = latest_cdi_pct
-            cdi_accum_pp = avg_cdi_accum
-            cdi_accum_pct = avg_cdi_accum
-        else:
-            weekly_var_val = Decimal("0.00")
-            weekly_var_pct = 0.0
-            accum_var_val = Decimal("0.00")
-            accum_var_pct = 0.0
-            cdi_weekly_pp = 0.0
-            cdi_weekly_pct_cdi = 0.0
-            cdi_accum_pp = 0.0
-            cdi_accum_pct = 0.0
+        weekly_var_val = Decimal(str(summary_metrics.get("weekly_variation_val", "0.00")))
+        weekly_var_pct = float(summary_metrics.get("weekly_variation_pct", 0.0))
+        accum_var_val = Decimal(str(summary_metrics.get("accumulated_variation_val", "0.00")))
+        accum_var_pct = float(summary_metrics.get("accumulated_variation_pct", 0.0))
+        cdi_weekly_pp = float(summary_metrics.get("cdi_weekly_pp", 0.0))
+        cdi_weekly_pct_cdi = float(summary_metrics.get("cdi_weekly_pct_cdi", 0.0))
+        cdi_accum_pp = float(summary_metrics.get("cdi_accumulated_pp", 0.0))
+        cdi_accum_pct = float(summary_metrics.get("cdi_accumulated_pct_cdi", 0.0))
 
         return DashboardSummaryResponse(
+
             upload_id=upload_id,
             upload_filename=upload_filename,
             total_real_estate=current_data["re_total"],

@@ -113,7 +113,50 @@ class ExcelParserService:
         else:
             parsed_data['vehicle_fleet'] = []
 
+        parsed_data['summary_metrics'] = ExcelParserService._parse_summary_metrics(excel_file)
+
         return parsed_data
+
+    @staticmethod
+    def _parse_summary_metrics(excel_file: pd.ExcelFile) -> Dict[str, Any]:
+        """Extracts executive KPI metrics & variations directly from Excel sheet cells without formulas."""
+        metrics = {
+            "weekly_variation_val": 0.0,
+            "weekly_variation_pct": 0.0,
+            "accumulated_variation_val": 0.0,
+            "accumulated_variation_pct": 0.0,
+            "cdi_weekly_pp": 0.0,
+            "cdi_weekly_pct_cdi": 0.0,
+            "cdi_accumulated_pp": 0.0,
+            "cdi_accumulated_pct_cdi": 0.0,
+        }
+
+        # Search all sheets for KPI labels or summary cells
+        for sheet_name in excel_file.sheet_names:
+            try:
+                df = pd.read_excel(excel_file, sheet_name=sheet_name, header=None, nrows=20)
+                for r in range(len(df)):
+                    for c in range(len(df.columns) - 1):
+                        cell_val = normalize_str(df.iloc[r, c])
+                        next_val = df.iloc[r, c+1] if c+1 < len(df.columns) else None
+                        
+                        if 'VARIACAO SEMANAL' in cell_val:
+                            val = clean_numeric(next_val)
+                            if val is not None: metrics["weekly_variation_val"] = val
+                        elif 'VARIACAO ACUMULADA' in cell_val:
+                            val = clean_numeric(next_val)
+                            if val is not None: metrics["accumulated_variation_val"] = val
+                        elif 'CDI SEMANAL' in cell_val:
+                            val = clean_numeric(next_val)
+                            if val is not None: metrics["cdi_weekly_pp"] = val
+                        elif 'CDI ACUMULADO' in cell_val:
+                            val = clean_numeric(next_val)
+                            if val is not None: metrics["cdi_accumulated_pp"] = val
+            except Exception:
+                continue
+
+        return metrics
+
 
     @staticmethod
     def _parse_debt_control(excel_file: pd.ExcelFile, sheet_name: str) -> List[Dict[str, Any]]:

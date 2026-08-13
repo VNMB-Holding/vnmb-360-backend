@@ -63,7 +63,9 @@ def process_and_persist_excel(filename: str, file_bytes: bytes, db: Session) -> 
         counts['vehicle_fleet'] = len(vehicles)
 
         upload_log.records_ingested = counts
+        upload_log.summary_metrics = parsed_data.get('summary_metrics', {})
         db.commit()
+
         
         return {
             "message": "Excel file uploaded and data successfully ingested into history batch.",

@@ -12,3 +12,5 @@ class ExcelUploadLog(Base):
     filename = Column(String(255), nullable=False)
     uploaded_at = Column(DateTime, default=utc_now, nullable=False, index=True)
     records_ingested = Column(JSON, nullable=True)
+    summary_metrics = Column(JSON, nullable=True)
+
