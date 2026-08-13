@@ -144,7 +144,7 @@ class DashboardService:
         current_data = DashboardService._compute_net_worth_for_upload(db, upload_id)
         current_nw = current_data["net_worth"]
 
-        # 1. Obter pontos da série histórica estritamente do próprio upload selecionado
+        # 1. Obter pontos da série histórica estritamente do próprio upload selecionado (Relatório Semanal)
         debt_records = (
             db.query(DebtControl)
             .filter(DebtControl.upload_id == upload_id)
@@ -154,9 +154,9 @@ class DashboardService:
 
         evolution_points: List[EvolutionPoint] = []
         if debt_records:
-            for rec in debt_records:
+            for idx, rec in enumerate(debt_records):
                 bal = float(rec.final_balance or 0)
-                # Adiciona componentes patrimoniais do próprio upload para refletir Patrimônio Líquido total
+                # Somar ativos do lote para consolidar o patrimônio total por semana do relatório
                 re_v = float(current_data["re_total"])
                 veh_v = float(current_data["veh_total"])
                 live_v = float(current_data["live_total"])
@@ -164,7 +164,12 @@ class DashboardService:
                 total_pt = bal + re_v + veh_v + live_v + inv_v
 
                 val_in_millions = round(total_pt / 1_000_000.0, 2)
-                date_label = rec.reference_date.strftime("%d/%m/%Y") if rec.reference_date else f"Ponto #{rec.id}"
+                
+                if rec.reference_date:
+                    date_label = f"Semana {rec.reference_date.strftime('%d/%m')}"
+                else:
+                    date_label = f"Semana #{idx + 1}"
+
                 evolution_points.append(
                     EvolutionPoint(
                         semana=date_label,
@@ -176,7 +181,7 @@ class DashboardService:
             val_in_millions = round(float(current_nw) / 1_000_000.0, 2)
             evolution_points.append(
                 EvolutionPoint(
-                    semana="Atual",
+                    semana="Semana Atual",
                     valor=val_in_millions,
                     display_val=f"R$ {float(current_nw):,.2f}"
                 )
