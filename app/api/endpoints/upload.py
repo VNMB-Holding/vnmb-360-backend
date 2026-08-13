@@ -19,10 +19,15 @@ router = APIRouter()
 def process_and_persist_excel(filename: str, file_bytes: bytes, db: Session) -> Dict[str, Any]:
     try:
         parsed_data = ExcelParserService.parse_excel(file_bytes)
+    except ValueError as ve:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(ve)
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to parse Excel file: {str(e)}"
+            detail=f"Falha ao ler arquivo Excel: {str(e)}"
         )
 
     try:
@@ -71,7 +76,8 @@ def process_and_persist_excel(filename: str, file_bytes: bytes, db: Session) -> 
             "message": "Excel file uploaded and data successfully ingested into history batch.",
             "upload_id": upload_id,
             "filename": filename,
-            "records_ingested": counts
+            "records_ingested": counts,
+            "warnings": parsed_data.get('warnings', [])
         }
     except Exception as e:
         db.rollback()
@@ -82,10 +88,10 @@ def process_and_persist_excel(filename: str, file_bytes: bytes, db: Session) -> 
 
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
 async def upload_excel(file: UploadFile = File(...), db: Session = Depends(get_db)):
-    if not file.filename.endswith(('.xlsx', '.xls')):
+    if not file.filename.lower().endswith(('.xlsx', '.xls', '.xlsm')):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid file format. Please upload an Excel (.xlsx or .xls) file."
+            detail="Formato inválido de extensão. Por favor envie um arquivo Excel (.xlsx ou .xls)."
         )
     contents = await file.read()
     return process_and_persist_excel(file.filename, contents, db)
@@ -97,3 +103,27 @@ async def upload_excel_alias(file: UploadFile = File(...), db: Session = Depends
 @router.get("/uploads", response_model=List[ExcelUploadLogResponse])
 def list_upload_history(db: Session = Depends(get_db)):
     return db.query(ExcelUploadLog).order_by(ExcelUploadLog.id.desc()).all()
+
+@router.delete("/upload/{upload_id}", status_code=status.HTTP_200_OK)
+def delete_upload_log(upload_id: int, db: Session = Depends(get_db)):
+    upload_log = db.query(ExcelUploadLog).filter(ExcelUploadLog.id == upload_id).first()
+    if not upload_log:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Upload log com ID {upload_id} não foi encontrado."
+        )
+    
+    try:
+        # Delete the upload log (cascade will handle child table records)
+        db.delete(upload_log)
+        db.commit()
+        return {
+            "message": f"Upload #{upload_id} ('{upload_log.filename}') e todos os registros associados foram excluídos com sucesso.",
+            "deleted_upload_id": upload_id
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Falha ao excluir o upload #{upload_id}: {str(e)}"
+        )

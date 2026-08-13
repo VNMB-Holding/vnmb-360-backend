@@ -68,3 +68,12 @@ def test_api_flow(tmp_path):
     assert float(summary["total_real_estate"]) == 22500000.0
     assert float(summary["total_vehicles"]) == 670000.0
     assert float(summary["total_livestock"]) == 3869345.0
+
+    # 10. Test DELETE /api/upload/{upload_id}
+    del_resp = client.delete(f"/api/upload/{upload_id}")
+    assert del_resp.status_code == 200
+    assert del_resp.json()["deleted_upload_id"] == upload_id
+
+    # Verify deleted
+    get_del = client.get(f"/api/debts?upload_id={upload_id}")
+    assert len(get_del.json()) == 0

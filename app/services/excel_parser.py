@@ -6,6 +6,19 @@ import re
 import io
 import unicodedata
 
+def validate_excel_bytes(file_bytes: bytes) -> None:
+    if not file_bytes or len(file_bytes) < 8:
+        raise ValueError("O arquivo enviado está vazio ou corrompido (tamanho insuficiente).")
+    
+    # Check for magic bytes:
+    # ZIP (xlsx, xlsm): starts with PK\x03\x04 (0x50 0x4B 0x03 0x04)
+    # OLE2 (xls): starts with 0xD0 0xCF 0x11 0xE0
+    is_zip = file_bytes.startswith(b'PK\x03\x04') or file_bytes.startswith(b'PK\x05\x06')
+    is_ole = file_bytes.startswith(b'\xd0\xcf\x11\xe0')
+
+    if not (is_zip or is_ole):
+        raise ValueError("Formato de arquivo inválido. O arquivo não possui uma estrutura Excel (.xlsx ou .xls) válida.")
+
 def normalize_str(s: Any) -> str:
     if pd.isna(s) or s is None:
         return ""
@@ -16,11 +29,14 @@ def clean_numeric(val: Any, abs_val: bool = False) -> Any:
     if pd.isna(val) or val is None:
         return None
     if isinstance(val, (int, float, np.number)):
-        res = float(val) if not np.isnan(val) else None
-        return abs(res) if (res is not None and abs_val) else res
+        if np.isnan(val) or np.isinf(val):
+            return None
+        res = float(val)
+        return abs(res) if abs_val else res
     
     val_str = str(val).strip()
-    if not val_str or val_str.lower() in ['total', 'soma', 'nan', 'none', '-', 'check']:
+    # Handle common Excel formula errors or invalid entries
+    if not val_str or any(err in val_str.lower() for err in ['total', 'soma', 'nan', 'none', '-', 'check', '#ref!', '#value!', '#n/a', '#null!', '#div/0!', '#name?']):
         return None
     
     val_str = re.sub(r'[R\$\s%]', '', val_str)
@@ -44,8 +60,18 @@ def parse_date(val: Any) -> date | None:
     if isinstance(val, date):
         return val
     
+    # Handle numeric serial Excel date numbers (e.g., 45200)
+    if isinstance(val, (int, float)) and not np.isnan(val):
+        try:
+            # Excel base date ~ 1899-12-30
+            if 30000 <= val <= 70000:
+                dt = pd.to_datetime(val, unit='D', origin='1899-12-30')
+                return dt.date()
+        except Exception:
+            pass
+
     val_str = str(val).strip()
-    if not val_str or val_str.lower() in ['total', 'soma', 'nan', 'check']:
+    if not val_str or any(err in val_str.lower() for err in ['total', 'soma', 'nan', 'check', '#ref!', '#value!', '#n/a']):
         return None
 
     formats = ['%d/%m/%Y', '%d/%m/%y', '%Y-%m-%d', '%m/%Y', '%m/%y', '%Y/%m', '%d-%m-%Y', '%Y-%m-%d %H:%M:%S']
@@ -57,7 +83,7 @@ def parse_date(val: Any) -> date | None:
             pass
             
     try:
-        dt = pd.to_datetime(val_str)
+        dt = pd.to_datetime(val_str, errors='coerce')
         if not pd.isna(dt):
             return dt.date()
     except Exception:
@@ -75,45 +101,68 @@ def find_header_row(df_raw: pd.DataFrame, keywords: List[str]) -> int:
 
 class ExcelParserService:
     @staticmethod
-    def parse_excel(file_bytes: bytes | io.BytesIO) -> Dict[str, List[Dict[str, Any]]]:
+    def parse_excel(file_bytes: bytes | io.BytesIO) -> Dict[str, Any]:
+        warnings: List[str] = []
+
         if isinstance(file_bytes, bytes):
+            validate_excel_bytes(file_bytes)
             file_bytes = io.BytesIO(file_bytes)
-            
-        excel_file = pd.ExcelFile(file_bytes)
-        parsed_data = {}
+        elif isinstance(file_bytes, io.BytesIO):
+            file_bytes.seek(0)
+            raw = file_bytes.read()
+            validate_excel_bytes(raw)
+            file_bytes.seek(0)
+
+        try:
+            excel_file = pd.ExcelFile(file_bytes)
+        except Exception as e:
+            raise ValueError(f"Não foi possível abrir o arquivo como Excel: {str(e)}")
+
+        parsed_data: Dict[str, Any] = {}
         sheet_names = excel_file.sheet_names
-        
+
         debt_sheet = next((s for s in sheet_names if 'Planilhão' in s or '1|' in s or 'Debt' in s), None)
         if debt_sheet:
             parsed_data['debt_control'] = ExcelParserService._parse_debt_control(excel_file, debt_sheet)
         else:
             parsed_data['debt_control'] = []
+            warnings.append("Aba de Controle de Dívida (Planilhão / Debt) não foi encontrada.")
             
         inv_sheet = next((s for s in sheet_names if 'Investimentos' in s or '2|' in s or 'Investment' in s), None)
         if inv_sheet:
             parsed_data['financial_investment'] = ExcelParserService._parse_financial_investment(excel_file, inv_sheet)
         else:
             parsed_data['financial_investment'] = []
+            warnings.append("Aba de Investimentos Financeiros não foi encontrada.")
 
         re_sheet = next((s for s in sheet_names if 'Imóveis' in s or 'Imoveis' in s or '3|' in s), None)
         if re_sheet:
             parsed_data['real_estate'] = ExcelParserService._parse_real_estate(excel_file, re_sheet)
         else:
             parsed_data['real_estate'] = []
+            warnings.append("Aba de Imóveis não foi encontrada.")
 
         live_sheet = next((s for s in sheet_names if 'Gado' in s or '4|' in s or 'Livestock' in s), None)
         if live_sheet:
             parsed_data['livestock_inventory'] = ExcelParserService._parse_livestock(excel_file, live_sheet)
         else:
             parsed_data['livestock_inventory'] = []
+            warnings.append("Aba de Gado/Estoque Pecuário não foi encontrada.")
 
         veh_sheet = next((s for s in sheet_names if 'Bens Móveis' in s or 'Bens Moveis' in s or '5|' in s or 'Veiculos' in s), None)
         if veh_sheet:
             parsed_data['vehicle_fleet'] = ExcelParserService._parse_vehicle_fleet(excel_file, veh_sheet)
         else:
             parsed_data['vehicle_fleet'] = []
+            warnings.append("Aba de Bens Móveis/Veículos não foi encontrada.")
+
+        # Ensure at least one module produced records, or fail
+        total_records = sum(len(parsed_data.get(k, [])) for k in ['debt_control', 'financial_investment', 'real_estate', 'livestock_inventory', 'vehicle_fleet'])
+        if total_records == 0:
+            raise ValueError("O arquivo Excel é válido, mas nenhuma estrutura conhecida de patrimônio foi encontrada ou todas estavam vazias.")
 
         parsed_data['summary_metrics'] = ExcelParserService._parse_summary_metrics(excel_file)
+        parsed_data['warnings'] = warnings
 
         return parsed_data
 
