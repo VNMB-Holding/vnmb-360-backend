@@ -168,7 +168,7 @@ class ExcelParserService:
 
     @staticmethod
     def _parse_summary_metrics(excel_file: pd.ExcelFile) -> Dict[str, Any]:
-        """Extracts executive KPI metrics & variations directly from Excel sheet cells without formulas."""
+        """Extracts executive KPI metrics, variations, and weekly evolution table directly from Excel sheet cells."""
         metrics = {
             "weekly_variation_val": 0.0,
             "weekly_variation_pct": 0.0,
@@ -178,12 +178,13 @@ class ExcelParserService:
             "cdi_weekly_pct_cdi": 0.0,
             "cdi_accumulated_pp": 0.0,
             "cdi_accumulated_pct_cdi": 0.0,
+            "weekly_evolution": []
         }
 
-        # Search all sheets for KPI labels or summary cells
+        # Search sheets for KPI labels or summary cells and weekly evolution table
         for sheet_name in excel_file.sheet_names:
             try:
-                df = pd.read_excel(excel_file, sheet_name=sheet_name, header=None, nrows=20)
+                df = pd.read_excel(excel_file, sheet_name=sheet_name, header=None, nrows=60)
                 for r in range(len(df)):
                     for c in range(len(df.columns) - 1):
                         cell_val = normalize_str(df.iloc[r, c])
@@ -201,6 +202,63 @@ class ExcelParserService:
                         elif 'CDI ACUMULADO' in cell_val:
                             val = clean_numeric(next_val)
                             if val is not None: metrics["cdi_accumulated_pp"] = val
+
+                # Search specifically for EVOLUCAO DO PATRIMONIO TOTAL (SEMANAL) block
+                for r in range(len(df)):
+                    row_str = " ".join([normalize_str(x) for x in df.iloc[r].values if pd.notna(x)])
+                    if 'EVOLUCAO DO PATRIMONIO TOTAL' in row_str or ('SEMANA' in row_str and 'PATRIMONIO TOTAL' in row_str):
+                        # The next rows after header contain Semana, Data, Patrimônio Total
+                        # Find the row containing headers like "Semana", "Data", "Patrimônio Total"
+                        header_r = r
+                        for offset in range(0, 3):
+                            if r + offset < len(df):
+                                h_row = [normalize_str(x) for x in df.iloc[r + offset].values if pd.notna(x)]
+                                if any('SEMANA' in x for x in h_row) and any('DATA' in x or 'PATRIMONIO' in x for x in h_row):
+                                    header_r = r + offset
+                                    break
+                        
+                        # Read data rows after header_r
+                        weekly_list = []
+                        for data_r in range(header_r + 1, min(header_r + 20, len(df))):
+                            row_vals = df.iloc[data_r].values
+                            # Clean cells
+                            clean_vals = [x for x in row_vals if pd.notna(x)]
+                            if not clean_vals:
+                                continue
+                            
+                            # Check if row starts with a number or week indicator
+                            semana_num = None
+                            dt_val = None
+                            pat_val = None
+
+                            for idx_cell, cell in enumerate(row_vals):
+                                norm_c = normalize_str(cell)
+                                if 'ALOCACAO' in norm_c or 'TOTAL' in norm_c:
+                                    break
+                                num_c = clean_numeric(cell)
+                                parsed_d = parse_date(cell)
+
+                                if num_c is not None and num_c <= 52 and semana_num is None and dt_val is None:
+                                    semana_num = int(num_c)
+                                elif parsed_d is not None and dt_val is None:
+                                    dt_val = parsed_d
+                                elif num_c is not None and num_c > 1000 and pat_val is None:
+                                    pat_val = float(num_c)
+                            
+                            if 'ALOCACAO' in " ".join([normalize_str(x) for x in clean_vals]):
+                                break
+
+                            if pat_val is not None:
+                                date_str = dt_val.strftime("%d/%b") if dt_val else (f"Semana {semana_num}" if semana_num else "Semana")
+                                weekly_list.append({
+                                    "semana_num": semana_num,
+                                    "date_str": date_str,
+                                    "patrimonio": pat_val
+                                })
+                        
+                        if weekly_list:
+                            metrics["weekly_evolution"] = weekly_list
+                        break
             except Exception:
                 continue
 

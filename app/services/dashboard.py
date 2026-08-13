@@ -144,48 +144,63 @@ class DashboardService:
         current_data = DashboardService._compute_net_worth_for_upload(db, upload_id)
         current_nw = current_data["net_worth"]
 
-        # 1. Obter pontos da série histórica estritamente do próprio upload selecionado (Relatório Semanal)
-        debt_records = (
-            db.query(DebtControl)
-            .filter(DebtControl.upload_id == upload_id)
-            .order_by(DebtControl.reference_date.asc())
-            .all()
-        )
+        # 1. Priorizar os pontos da tabela "EVOLUÇÃO DO PATRIMÔNIO TOTAL (SEMANAL)" se lidos no upload
+        summary_metrics = {}
+        log_item = db.query(ExcelUploadLog).filter(ExcelUploadLog.id == upload_id).first() if upload_id else None
+        if log_item and log_item.summary_metrics:
+            summary_metrics = log_item.summary_metrics
 
+        weekly_table = summary_metrics.get("weekly_evolution", [])
         evolution_points: List[EvolutionPoint] = []
-        if debt_records:
-            for idx, rec in enumerate(debt_records):
-                bal = float(rec.final_balance or 0)
-                # Somar ativos do lote para consolidar o patrimônio total por semana do relatório
-                re_v = float(current_data["re_total"])
-                veh_v = float(current_data["veh_total"])
-                live_v = float(current_data["live_total"])
-                inv_v = float(current_data["inv_total"])
-                total_pt = bal + re_v + veh_v + live_v + inv_v
 
-                val_in_millions = round(total_pt / 1_000_000.0, 2)
-                
-                if rec.reference_date:
-                    date_label = f"Semana {rec.reference_date.strftime('%d/%m')}"
-                else:
-                    date_label = f"Semana #{idx + 1}"
-
+        if weekly_table:
+            for item in weekly_table:
+                pat_val = float(item.get("patrimonio", 0.0))
+                val_in_millions = round(pat_val / 1_000_000.0, 2)
+                dt_str = item.get("date_str", "Semana")
                 evolution_points.append(
                     EvolutionPoint(
-                        semana=date_label,
+                        semana=dt_str,
                         valor=val_in_millions,
-                        display_val=f"R$ {total_pt:,.2f}"
+                        display_val=f"R$ {pat_val:,.2f}"
                     )
                 )
         else:
-            val_in_millions = round(float(current_nw) / 1_000_000.0, 2)
-            evolution_points.append(
-                EvolutionPoint(
-                    semana="Semana Atual",
-                    valor=val_in_millions,
-                    display_val=f"R$ {float(current_nw):,.2f}"
-                )
+            debt_records = (
+                db.query(DebtControl)
+                .filter(DebtControl.upload_id == upload_id)
+                .order_by(DebtControl.reference_date.asc())
+                .all()
             )
+
+            if debt_records:
+                for idx, rec in enumerate(debt_records):
+                    bal = float(rec.final_balance or 0)
+                    re_v = float(current_data["re_total"])
+                    veh_v = float(current_data["veh_total"])
+                    live_v = float(current_data["live_total"])
+                    inv_v = float(current_data["inv_total"])
+                    total_pt = bal + re_v + veh_v + live_v + inv_v
+
+                    val_in_millions = round(total_pt / 1_000_000.0, 2)
+                    date_label = f"Semana {rec.reference_date.strftime('%d/%m')}" if rec.reference_date else f"Semana #{idx + 1}"
+
+                    evolution_points.append(
+                        EvolutionPoint(
+                            semana=date_label,
+                            valor=val_in_millions,
+                            display_val=f"R$ {total_pt:,.2f}"
+                        )
+                    )
+            else:
+                val_in_millions = round(float(current_nw) / 1_000_000.0, 2)
+                evolution_points.append(
+                    EvolutionPoint(
+                        semana="Semana Atual",
+                        valor=val_in_millions,
+                        display_val=f"R$ {float(current_nw):,.2f}"
+                    )
+                )
 
         # 2. Variação Semanal e Acumulada lidas estritamente do próprio lote (sem fórmulas de subtração/divisão sintética no backend)
         summary_metrics = {}
