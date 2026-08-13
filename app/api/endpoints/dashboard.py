@@ -17,6 +17,9 @@ def get_dashboard_summary(
 
 @router.get("/dashboard/history", response_model=List[EvolutionPoint])
 def get_dashboard_history(
+    upload_id: Optional[int] = Query(None, description="Filter history by spreadsheet upload_id (defaults to latest upload)"),
     db: Session = Depends(get_db)
 ):
-    return DashboardService.get_history(db)
+    return DashboardService.get_history(db, upload_id)
+
+

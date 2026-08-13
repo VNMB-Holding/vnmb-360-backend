@@ -144,24 +144,7 @@ class DashboardService:
         current_data = DashboardService._compute_net_worth_for_upload(db, upload_id)
         current_nw = current_data["net_worth"]
 
-        # 1. Obter pontos da série histórica do lote selecionado ordenados por data
-        evolution_points: List[EvolutionPoint] = []
-        for log in all_logs:
-            nw = DashboardService._compute_net_worth_for_upload(db, log.id)["net_worth"]
-            val_in_millions = float(nw) / 1_000_000.0
-            if log.uploaded_at:
-                label = log.uploaded_at.strftime("%d/%m/%Y")
-            else:
-                label = f"Lote {log.id}"
-            evolution_points.append(
-                EvolutionPoint(
-                    semana=label,
-                    valor=round(val_in_millions, 2),
-                    display_val=f"R$ {float(nw):,.2f}"
-                )
-            )
-
-        # 2. Variação Semanal e Acumulada calculadas a partir dos registros de DebtControl (Planilhão) do próprio arquivo
+        # 1. Obter pontos da série histórica estritamente do próprio upload selecionado
         debt_records = (
             db.query(DebtControl)
             .filter(DebtControl.upload_id == upload_id)
@@ -169,6 +152,37 @@ class DashboardService:
             .all()
         )
 
+        evolution_points: List[EvolutionPoint] = []
+        if debt_records:
+            for rec in debt_records:
+                bal = float(rec.final_balance or 0)
+                # Adiciona componentes patrimoniais do próprio upload para refletir Patrimônio Líquido total
+                re_v = float(current_data["re_total"])
+                veh_v = float(current_data["veh_total"])
+                live_v = float(current_data["live_total"])
+                inv_v = float(current_data["inv_total"])
+                total_pt = bal + re_v + veh_v + live_v + inv_v
+
+                val_in_millions = round(total_pt / 1_000_000.0, 2)
+                date_label = rec.reference_date.strftime("%d/%m/%Y") if rec.reference_date else f"Ponto #{rec.id}"
+                evolution_points.append(
+                    EvolutionPoint(
+                        semana=date_label,
+                        valor=val_in_millions,
+                        display_val=f"R$ {total_pt:,.2f}"
+                    )
+                )
+        else:
+            val_in_millions = round(float(current_nw) / 1_000_000.0, 2)
+            evolution_points.append(
+                EvolutionPoint(
+                    semana="Atual",
+                    valor=val_in_millions,
+                    display_val=f"R$ {float(current_nw):,.2f}"
+                )
+            )
+
+        # 2. Variação Semanal e Acumulada calculadas estritamente a partir dos registros do próprio arquivo selecionado
         if len(debt_records) >= 2:
             latest_debt = debt_records[-1]
             prev_debt = debt_records[-2]
@@ -184,7 +198,7 @@ class DashboardService:
             accum_var_val = latest_bal - first_bal
             accum_var_pct = float((accum_var_val / first_bal) * 100) if first_bal > 0 else 0.0
 
-            # Média do % do CDI do último período e acumulado
+            # Média do % do CDI do próprio arquivo
             latest_cdi_pct = float(latest_debt.avg_cdi_percentage or 0) * 100
             valid_cdis = [float(d.avg_cdi_percentage) * 100 for d in debt_records if d.avg_cdi_percentage is not None]
             avg_cdi_accum = (sum(valid_cdis) / len(valid_cdis)) if valid_cdis else 0.0
@@ -227,6 +241,7 @@ class DashboardService:
         )
 
     @staticmethod
-    def get_history(db: Session) -> List[EvolutionPoint]:
-        summary = DashboardService.get_summary(db)
+    def get_history(db: Session, upload_id: Optional[int] = None) -> List[EvolutionPoint]:
+        summary = DashboardService.get_summary(db, upload_id)
         return summary.evolution_history
+
