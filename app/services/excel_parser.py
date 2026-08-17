@@ -384,7 +384,7 @@ class ExcelParserService:
             elif any(k in nc for k in ['BOIS', 'CABECAS']): col_map['head_count'] = c
             elif nc == 'R$' or 'VALOR TOTAL' in nc: col_map['total_value'] = c
             elif 'MEDIA CAB' in nc or 'MEDIA P/ CABECA' in nc: col_map['avg_per_head'] = c
-            elif any(k in nc for k in ['PESO FAZENDA', 'TOTAL PESO', 'PESO TOTAL', 'PESO (KG)', 'PESO KG', 'PESO']): col_map['total_farm_weight'] = c
+            elif 'PESO' in nc: col_map['total_farm_weight'] = c
             elif 'FRETE' in nc: col_map['total_freight_per_head'] = c
             elif 'COMISSAO' in nc: col_map['total_commission'] = c
 
