@@ -114,7 +114,13 @@ def delete_upload_log(upload_id: int, db: Session = Depends(get_db)):
         )
     
     try:
-        # Delete the upload log (cascade will handle child table records)
+        # Explicitly delete child records to guarantee cleanup across all DB engines (SQLite, Postgres)
+        db.query(DebtControl).filter(DebtControl.upload_id == upload_id).delete(synchronize_session=False)
+        db.query(FinancialInvestment).filter(FinancialInvestment.upload_id == upload_id).delete(synchronize_session=False)
+        db.query(RealEstate).filter(RealEstate.upload_id == upload_id).delete(synchronize_session=False)
+        db.query(LivestockInventory).filter(LivestockInventory.upload_id == upload_id).delete(synchronize_session=False)
+        db.query(VehicleFleet).filter(VehicleFleet.upload_id == upload_id).delete(synchronize_session=False)
+
         db.delete(upload_log)
         db.commit()
         return {
