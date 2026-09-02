@@ -77,3 +77,57 @@ def test_api_flow(tmp_path):
     # Verify deleted
     get_del = client.get(f"/api/debts?upload_id={upload_id}")
     assert len(get_del.json()) == 0
+
+def test_consolidated_livestock_flow():
+    import os
+    from pathlib import Path
+    sample_v2 = Path(r"C:\Users\brenosouza-nmb\Downloads") / "Modelo Relatório Semanal Zé v2.xlsx"
+    if not sample_v2.exists():
+        return
+
+    with open(sample_v2, "rb") as f:
+        response = client.post(
+            "/api/upload",
+            files={"file": ("Modelo Relatório Semanal Zé v2.xlsx", f, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+        )
+    assert response.status_code == 201
+    res_data = response.json()
+    upload_id = res_data["upload_id"]
+    assert res_data["records_ingested"]["livestock_inventory"] == 5
+
+    # Test GET /api/livestock/summary
+    summary_resp = client.get(f"/api/livestock/summary?upload_id={upload_id}")
+    assert summary_resp.status_code == 200
+    summary = summary_resp.json()
+    assert summary["has_consolidated_summary"] is True
+    assert summary["total_cabecas"] == 51219
+    assert float(summary["valor_rebanho"]) == 250057478.45
+    assert float(summary["frete_total"]) == 3892321.27
+    assert float(summary["comissao_total"]) == 921002.27
+    assert float(summary["investimento_total"]) == 254870801.98
+    assert float(summary["valor_medio_cabeca"]) == 4882.12
+    assert float(summary["peso_medio_cabeca"]) == 365.77
+
+    # Check distributions
+    assert len(summary["distribuicao_local"]) == 2
+    assert summary["distribuicao_local"][0]["local"] == "Confinamento"
+    assert summary["distribuicao_local"][0]["cabecas"] == 36592
+
+    assert len(summary["distribuicao_uf"]) == 3
+    assert summary["distribuicao_uf"][0]["uf"] == "MT"
+    assert summary["distribuicao_uf"][0]["cabecas"] == 31668
+
+    assert len(summary["distribuicao_operador"]) == 5
+    assert summary["distribuicao_operador"][0]["operador"] == "Tripoloni"
+    assert summary["distribuicao_operador"][0]["cabecas"] == 22786
+
+    # Test GET /api/dashboard/summary total livestock
+    dash_resp = client.get(f"/api/dashboard/summary?upload_id={upload_id}")
+    assert dash_resp.status_code == 200
+    dash = dash_resp.json()
+    assert float(dash["total_livestock"]) == 254870801.98
+
+    # Clean up
+    del_resp = client.delete(f"/api/upload/{upload_id}")
+    assert del_resp.status_code == 200
+

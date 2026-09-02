@@ -27,16 +27,21 @@ class DashboardService:
         veh_total = Decimal(str(veh_total))
 
         # Livestock total including Freight and Commission (as in Relatório Semanal BI formula)
-        live_subtotal = db.query(func.coalesce(func.sum(LivestockInventory.total_value), 0)).filter(
-            LivestockInventory.upload_id == upload_id
-        ).scalar()
-        live_freight = db.query(func.coalesce(func.sum(LivestockInventory.total_freight_per_head), 0)).filter(
-            LivestockInventory.upload_id == upload_id
-        ).scalar()
-        live_commission = db.query(func.coalesce(func.sum(LivestockInventory.total_commission), 0)).filter(
-            LivestockInventory.upload_id == upload_id
-        ).scalar()
-        live_total = Decimal(str(live_subtotal)) + Decimal(str(live_freight)) + Decimal(str(live_commission))
+        log_entry = db.query(ExcelUploadLog).filter(ExcelUploadLog.id == upload_id).first()
+        live_meta = (log_entry.summary_metrics or {}).get("livestock") if log_entry else None
+        if live_meta and live_meta.get("investimento_total") is not None:
+            live_total = Decimal(str(round(live_meta["investimento_total"], 2)))
+        else:
+            live_subtotal = db.query(func.coalesce(func.sum(LivestockInventory.total_value), 0)).filter(
+                LivestockInventory.upload_id == upload_id
+            ).scalar()
+            live_freight = db.query(func.coalesce(func.sum(LivestockInventory.total_freight_per_head), 0)).filter(
+                LivestockInventory.upload_id == upload_id
+            ).scalar()
+            live_commission = db.query(func.coalesce(func.sum(LivestockInventory.total_commission), 0)).filter(
+                LivestockInventory.upload_id == upload_id
+            ).scalar()
+            live_total = Decimal(str(live_subtotal)) + Decimal(str(live_freight)) + Decimal(str(live_commission))
 
         # Investments: use the latest reference_date snapshot (06/2026 = 481.113.840,54)
         latest_inv_date = db.query(func.max(FinancialInvestment.reference_date)).filter(

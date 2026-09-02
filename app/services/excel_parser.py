@@ -142,9 +142,11 @@ class ExcelParserService:
             parsed_data['real_estate'] = []
             warnings.append("Aba de Imóveis não foi encontrada.")
 
-        live_sheet = next((s for s in sheet_names if 'Gado' in s or '4|' in s or 'Livestock' in s), None)
+        live_sheet = next((s for s in sheet_names if any(k in normalize_str(s) for k in ['GADO', '4|', 'LIVESTOCK', 'REBANHO'])), None)
+        livestock_summary = None
         if live_sheet:
-            parsed_data['livestock_inventory'] = ExcelParserService._parse_livestock(excel_file, live_sheet)
+            live_records, livestock_summary = ExcelParserService._parse_livestock(excel_file, live_sheet)
+            parsed_data['livestock_inventory'] = live_records
         else:
             parsed_data['livestock_inventory'] = []
             warnings.append("Aba de Gado/Estoque Pecuário não foi encontrada.")
@@ -161,7 +163,10 @@ class ExcelParserService:
         if total_records == 0:
             raise ValueError("O arquivo Excel é válido, mas nenhuma estrutura conhecida de patrimônio foi encontrada ou todas estavam vazias.")
 
-        parsed_data['summary_metrics'] = ExcelParserService._parse_summary_metrics(excel_file)
+        summary_metrics = ExcelParserService._parse_summary_metrics(excel_file)
+        if livestock_summary:
+            summary_metrics['livestock'] = livestock_summary
+        parsed_data['summary_metrics'] = summary_metrics
         parsed_data['warnings'] = warnings
 
         return parsed_data
@@ -368,10 +373,233 @@ class ExcelParserService:
         return records
 
     @staticmethod
-    def _parse_livestock(excel_file: pd.ExcelFile, sheet_name: str) -> List[Dict[str, Any]]:
+    def _parse_livestock(excel_file: pd.ExcelFile, sheet_name: str) -> tuple[List[Dict[str, Any]], Dict[str, Any] | None]:
         df_raw = pd.read_excel(excel_file, sheet_name=sheet_name, header=None)
+
+        # Check if the sheet has the new consolidated executive layout
+        is_consolidated = False
+        for _, row in df_raw.iterrows():
+            row_str = " ".join([normalize_str(x) for x in row.values if pd.notna(x)])
+            if 'DISTRIBUICAO POR LOCAL' in row_str or 'DISTRIBUICAO POR OPERADOR' in row_str or 'TOTAL DE CABECAS' in row_str:
+                is_consolidated = True
+                break
+
+        if is_consolidated:
+            return ExcelParserService._parse_livestock_consolidated(df_raw)
+        else:
+            return ExcelParserService._parse_livestock_detailed(df_raw), None
+
+    @staticmethod
+    def _parse_livestock_consolidated(df_raw: pd.DataFrame) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        kpis = {
+            "total_cabecas": 0,
+            "valor_rebanho": 0.0,
+            "valor_medio_cabeca": 0.0,
+            "peso_medio_cabeca": 0.0,
+            "frete_total": 0.0,
+            "comissao_total": 0.0,
+            "investimento_total": 0.0,
+        }
+
+        def get_val_nearby(row_idx: int, col_idx: int) -> float | None:
+            if row_idx + 1 < len(df_raw):
+                v = clean_numeric(df_raw.iloc[row_idx + 1, col_idx])
+                if v is not None:
+                    return v
+            if col_idx + 1 < len(df_raw.columns):
+                v = clean_numeric(df_raw.iloc[row_idx, col_idx + 1])
+                if v is not None:
+                    return v
+            if row_idx + 1 < len(df_raw) and col_idx + 1 < len(df_raw.columns):
+                v = clean_numeric(df_raw.iloc[row_idx + 1, col_idx + 1])
+                if v is not None:
+                    return v
+            return None
+
+        for r in range(len(df_raw)):
+            for c in range(len(df_raw.columns)):
+                cell_norm = normalize_str(df_raw.iloc[r, c])
+                if cell_norm == 'TOTAL DE CABECAS':
+                    v = get_val_nearby(r, c)
+                    if v is not None:
+                        kpis["total_cabecas"] = int(v)
+                elif cell_norm == 'VALOR DO REBANHO':
+                    v = get_val_nearby(r, c)
+                    if v is not None:
+                        kpis["valor_rebanho"] = v
+                elif cell_norm == 'VALOR MEDIO / CABECA':
+                    v = get_val_nearby(r, c)
+                    if v is not None:
+                        kpis["valor_medio_cabeca"] = v
+                elif cell_norm == 'PESO MEDIO / CABECA':
+                    v = get_val_nearby(r, c)
+                    if v is not None:
+                        kpis["peso_medio_cabeca"] = v
+                elif cell_norm == 'FRETE TOTAL':
+                    v = get_val_nearby(r, c)
+                    if v is not None:
+                        kpis["frete_total"] = v
+                elif cell_norm == 'COMISSAO TOTAL':
+                    v = get_val_nearby(r, c)
+                    if v is not None:
+                        kpis["comissao_total"] = v
+                elif 'INVESTIMENTO TOTAL' in cell_norm:
+                    v = get_val_nearby(r, c)
+                    if v is not None:
+                        kpis["investimento_total"] = v
+
+        # Parse Table 1: Distribuição por Local de Estoque
+        dist_local = []
+        for r in range(len(df_raw)):
+            row_str = " ".join([normalize_str(x) for x in df_raw.iloc[r].values if pd.notna(x)])
+            if 'DISTRIBUICAO POR LOCAL' in row_str:
+                for data_r in range(r + 2, min(r + 10, len(df_raw))):
+                    row_vals = df_raw.iloc[data_r].values
+                    non_empty = [x for x in row_vals if pd.notna(x)]
+                    if not non_empty:
+                        continue
+                    name = str(non_empty[0]).strip()
+                    if normalize_str(name) == 'TOTAL':
+                        break
+                    cab = clean_numeric(non_empty[1]) if len(non_empty) > 1 else 0
+                    pct_cab = clean_numeric(non_empty[2]) if len(non_empty) > 2 else 0
+                    val = clean_numeric(non_empty[3]) if len(non_empty) > 3 else 0
+                    pct_val = clean_numeric(non_empty[4]) if len(non_empty) > 4 else 0
+                    dist_local.append({
+                        "local": name,
+                        "cabecas": int(cab or 0),
+                        "pct_cabecas": pct_cab or 0.0,
+                        "valor": val or 0.0,
+                        "pct_valor": pct_val or 0.0
+                    })
+
+        # Parse Table 2: Distribuição por UF (Estado)
+        dist_uf = []
+        for r in range(len(df_raw)):
+            row_str = " ".join([normalize_str(x) for x in df_raw.iloc[r].values if pd.notna(x)])
+            if 'DISTRIBUICAO POR UF' in row_str:
+                for data_r in range(r + 2, min(r + 10, len(df_raw))):
+                    row_vals = df_raw.iloc[data_r].values
+                    non_empty = [x for x in row_vals if pd.notna(x)]
+                    if not non_empty:
+                        continue
+                    uf_name = str(non_empty[0]).strip()
+                    if normalize_str(uf_name) == 'TOTAL':
+                        break
+                    cab = clean_numeric(non_empty[1]) if len(non_empty) > 1 else 0
+                    val = clean_numeric(non_empty[2]) if len(non_empty) > 2 else 0
+                    med = clean_numeric(non_empty[3]) if len(non_empty) > 3 else 0
+                    pct_val = clean_numeric(non_empty[4]) if len(non_empty) > 4 else 0
+                    dist_uf.append({
+                        "uf": uf_name,
+                        "cabecas": int(cab or 0),
+                        "valor": val or 0.0,
+                        "valor_medio": med or 0.0,
+                        "pct_valor": pct_val or 0.0
+                    })
+
+        # Parse Table 3: Distribuição por Operador / Parceiro
+        dist_operador = []
+        for r in range(len(df_raw)):
+            row_str = " ".join([normalize_str(x) for x in df_raw.iloc[r].values if pd.notna(x)])
+            if 'DISTRIBUICAO POR OPERADOR' in row_str:
+                for data_r in range(r + 2, min(r + 15, len(df_raw))):
+                    row_vals = df_raw.iloc[data_r].values
+                    non_empty = [x for x in row_vals if pd.notna(x)]
+                    if not non_empty:
+                        continue
+                    op_name = str(non_empty[0]).strip()
+                    if normalize_str(op_name) == 'TOTAL':
+                        break
+                    cab = clean_numeric(non_empty[1]) if len(non_empty) > 1 else 0
+                    val = clean_numeric(non_empty[2]) if len(non_empty) > 2 else 0
+                    med = clean_numeric(non_empty[3]) if len(non_empty) > 3 else 0
+                    pct_val = clean_numeric(non_empty[4]) if len(non_empty) > 4 else 0
+                    filtro = str(non_empty[5]).strip() if len(non_empty) > 5 else op_name
+                    dist_operador.append({
+                        "operador": op_name,
+                        "cabecas": int(cab or 0),
+                        "valor": val or 0.0,
+                        "valor_medio": med or 0.0,
+                        "pct_valor": pct_val or 0.0,
+                        "filtro": filtro
+                    })
+
+        # Generate LivestockInventory records for each operator
+        total_cab = kpis["total_cabecas"] or sum(op["cabecas"] for op in dist_operador) or 1
+        frete_total = kpis["frete_total"] or 0.0
+        comissao_total = kpis["comissao_total"] or 0.0
+        peso_medio = kpis["peso_medio_cabeca"] or 0.0
+
+        records = []
+        accum_freight = 0.0
+        accum_comm = 0.0
+
+        for i, op in enumerate(dist_operador):
+            is_last = (i == len(dist_operador) - 1)
+            share = op["cabecas"] / total_cab if total_cab > 0 else 0
+
+            if is_last:
+                row_freight = round(frete_total - accum_freight, 2)
+                row_comm = round(comissao_total - accum_comm, 2)
+            else:
+                row_freight = round(frete_total * share, 2)
+                row_comm = round(comissao_total * share, 2)
+                accum_freight += row_freight
+                accum_comm += row_comm
+
+            op_name = op["operador"]
+            unit = f"{op_name}"
+            loc_type = "Recria" if any(k in op_name.lower() for k in ['juina', 'juína', 'pura fé', 'pura fe', 'pasto']) else "Confinamento"
+            if any(k in op_name.lower() for k in ['juina', 'juína', 'tripoloni']):
+                unit += " - MT"
+            elif any(k in op_name.lower() for k in ['pura f', 'adam']):
+                unit += " - SP"
+            elif 'jbs' in op_name.lower():
+                unit += " - MS"
+
+            records.append({
+                "unit": unit,
+                "owner": "VB AGRO",
+                "location_type": loc_type,
+                "contract_id": f"OP-{i+1:02d}",
+                "cattle_partner": op_name,
+                "head_count": op["cabecas"],
+                "total_value": op["valor"],
+                "avg_per_head": op["valor_medio"],
+                "total_farm_weight": round(peso_medio, 2),
+                "total_freight_per_head": row_freight,
+                "total_commission": row_comm,
+            })
+
+        target_inv_total = round(kpis["investimento_total"], 2) if kpis["investimento_total"] else None
+        if target_inv_total is not None and records:
+            current_sum = sum(round(r["total_value"], 2) + r["total_freight_per_head"] + r["total_commission"] for r in records)
+            diff = round(target_inv_total - current_sum, 2)
+            if abs(diff) > 0 and abs(diff) < 0.10:
+                records[-1]["total_freight_per_head"] = round(records[-1]["total_freight_per_head"] + diff, 2)
+
+        livestock_summary = {
+            "has_consolidated_summary": True,
+            "total_cabecas": kpis["total_cabecas"],
+            "valor_rebanho": kpis["valor_rebanho"],
+            "valor_medio_cabeca": kpis["valor_medio_cabeca"],
+            "peso_medio_cabeca": kpis["peso_medio_cabeca"],
+            "frete_total": kpis["frete_total"],
+            "comissao_total": kpis["comissao_total"],
+            "investimento_total": kpis["investimento_total"],
+            "distribuicao_local": dist_local,
+            "distribuicao_uf": dist_uf,
+            "distribuicao_operador": dist_operador,
+        }
+        return records, livestock_summary
+
+    @staticmethod
+    def _parse_livestock_detailed(df_raw: pd.DataFrame) -> List[Dict[str, Any]]:
         h_idx = find_header_row(df_raw, ['UNIDADE', 'LOCAL', 'ESTOQUE', 'PECUARISTA', 'PARCEIRO', 'CONTRATO'])
-        df = pd.read_excel(excel_file, sheet_name=sheet_name, skiprows=h_idx)
+        # Read with skiprows
+        df = df_raw.iloc[h_idx + 1:].copy()
+        df.columns = df_raw.iloc[h_idx].values
 
         col_map = {}
         for c in df.columns:
