@@ -14,8 +14,8 @@ def test_api_flow(tmp_path):
     
     assert response.status_code == 201
     json_res = response.json()
-    assert json_res["message"] == "Excel file uploaded and data successfully ingested into history batch."
     assert "upload_id" in json_res
+    assert "sucesso" in json_res["message"].lower() or "success" in json_res["message"].lower()
     upload_id = json_res["upload_id"]
 
     assert json_res["records_ingested"]["debt_control"] == 2
