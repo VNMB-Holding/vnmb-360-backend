@@ -10,9 +10,6 @@ def validate_excel_bytes(file_bytes: bytes) -> None:
     if not file_bytes or len(file_bytes) < 8:
         raise ValueError("O arquivo enviado está vazio ou corrompido (tamanho insuficiente).")
     
-    # Check for magic bytes:
-    # ZIP (xlsx, xlsm): starts with PK\x03\x04 (0x50 0x4B 0x03 0x04)
-    # OLE2 (xls): starts with 0xD0 0xCF 0x11 0xE0
     is_zip = file_bytes.startswith(b'PK\x03\x04') or file_bytes.startswith(b'PK\x05\x06')
     is_ole = file_bytes.startswith(b'\xd0\xcf\x11\xe0')
 
@@ -35,7 +32,6 @@ def clean_numeric(val: Any, abs_val: bool = False) -> Any:
         return abs(res) if abs_val else res
     
     val_str = str(val).strip()
-    # Handle common Excel formula errors or invalid entries
     if not val_str or any(err in val_str.lower() for err in ['total', 'soma', 'nan', 'none', '-', 'check', '#ref!', '#value!', '#n/a', '#null!', '#div/0!', '#name?']):
         return None
     
@@ -60,10 +56,8 @@ def parse_date(val: Any) -> date | None:
     if isinstance(val, date):
         return val
     
-    # Handle numeric serial Excel date numbers (e.g., 45200)
     if isinstance(val, (int, float)) and not np.isnan(val):
         try:
-            # Excel base date ~ 1899-12-30
             if 30000 <= val <= 70000:
                 dt = pd.to_datetime(val, unit='D', origin='1899-12-30')
                 return dt.date()
@@ -158,7 +152,6 @@ class ExcelParserService:
             parsed_data['vehicle_fleet'] = []
             warnings.append("Aba de Bens Móveis/Veículos não foi encontrada.")
 
-        # Ensure at least one module produced records, or fail
         total_records = sum(len(parsed_data.get(k, [])) for k in ['debt_control', 'financial_investment', 'real_estate', 'livestock_inventory', 'vehicle_fleet'])
         if total_records == 0:
             raise ValueError("O arquivo Excel é válido, mas nenhuma estrutura conhecida de patrimônio foi encontrada ou todas estavam vazias.")
@@ -186,7 +179,6 @@ class ExcelParserService:
             "weekly_evolution": []
         }
 
-        # Search sheets for KPI labels or summary cells and weekly evolution table
         for sheet_name in excel_file.sheet_names:
             try:
                 df = pd.read_excel(excel_file, sheet_name=sheet_name, header=None, nrows=60)
@@ -208,12 +200,9 @@ class ExcelParserService:
                             val = clean_numeric(next_val)
                             if val is not None: metrics["cdi_accumulated_pp"] = val
 
-                # Search specifically for EVOLUCAO DO PATRIMONIO TOTAL (SEMANAL) block
                 for r in range(len(df)):
                     row_str = " ".join([normalize_str(x) for x in df.iloc[r].values if pd.notna(x)])
                     if 'EVOLUCAO DO PATRIMONIO TOTAL' in row_str or ('SEMANA' in row_str and 'PATRIMONIO TOTAL' in row_str):
-                        # The next rows after header contain Semana, Data, Patrimônio Total
-                        # Find the row containing headers like "Semana", "Data", "Patrimônio Total"
                         header_r = r
                         for offset in range(0, 3):
                             if r + offset < len(df):
@@ -222,16 +211,13 @@ class ExcelParserService:
                                     header_r = r + offset
                                     break
                         
-                        # Read data rows after header_r
                         weekly_list = []
                         for data_r in range(header_r + 1, min(header_r + 20, len(df))):
                             row_vals = df.iloc[data_r].values
-                            # Clean cells
                             clean_vals = [x for x in row_vals if pd.notna(x)]
                             if not clean_vals:
                                 continue
                             
-                            # Check if row starts with a number or week indicator
                             semana_num = None
                             dt_val = None
                             pat_val = None
@@ -376,7 +362,6 @@ class ExcelParserService:
     def _parse_livestock(excel_file: pd.ExcelFile, sheet_name: str) -> tuple[List[Dict[str, Any]], Dict[str, Any] | None]:
         df_raw = pd.read_excel(excel_file, sheet_name=sheet_name, header=None)
 
-        # Check if the sheet has the new consolidated executive layout
         is_consolidated = False
         for _, row in df_raw.iterrows():
             row_str = " ".join([normalize_str(x) for x in row.values if pd.notna(x)])
@@ -448,7 +433,6 @@ class ExcelParserService:
                     if v is not None:
                         kpis["investimento_total"] = v
 
-        # Parse Table 1: Distribuição por Local de Estoque
         dist_local = []
         for r in range(len(df_raw)):
             row_str = " ".join([normalize_str(x) for x in df_raw.iloc[r].values if pd.notna(x)])
@@ -473,7 +457,6 @@ class ExcelParserService:
                         "pct_valor": pct_val or 0.0
                     })
 
-        # Parse Table 2: Distribuição por UF (Estado)
         dist_uf = []
         for r in range(len(df_raw)):
             row_str = " ".join([normalize_str(x) for x in df_raw.iloc[r].values if pd.notna(x)])
@@ -498,7 +481,6 @@ class ExcelParserService:
                         "pct_valor": pct_val or 0.0
                     })
 
-        # Parse Table 3: Distribuição por Operador / Parceiro
         dist_operador = []
         for r in range(len(df_raw)):
             row_str = " ".join([normalize_str(x) for x in df_raw.iloc[r].values if pd.notna(x)])
@@ -525,7 +507,6 @@ class ExcelParserService:
                         "filtro": filtro
                     })
 
-        # Generate LivestockInventory records for each operator
         total_cab = kpis["total_cabecas"] or sum(op["cabecas"] for op in dist_operador) or 1
         frete_total = kpis["frete_total"] or 0.0
         comissao_total = kpis["comissao_total"] or 0.0
@@ -597,7 +578,6 @@ class ExcelParserService:
     @staticmethod
     def _parse_livestock_detailed(df_raw: pd.DataFrame) -> List[Dict[str, Any]]:
         h_idx = find_header_row(df_raw, ['UNIDADE', 'LOCAL', 'ESTOQUE', 'PECUARISTA', 'PARCEIRO', 'CONTRATO'])
-        # Read with skiprows
         df = df_raw.iloc[h_idx + 1:].copy()
         df.columns = df_raw.iloc[h_idx].values
 

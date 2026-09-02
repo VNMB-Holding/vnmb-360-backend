@@ -17,7 +17,7 @@ def test_parse_date():
     assert parse_date("01/12/2025").strftime("%Y-%m-%d") == "2025-12-01"
     assert parse_date("2026-08-11").strftime("%Y-%m-%d") == "2026-08-11"
     assert parse_date("12/2025").strftime("%Y-%m-%d") == "2025-12-01"
-    assert parse_date(45200) is not None  # Serial Excel date
+    assert parse_date(45200) is not None
     assert parse_date(None) is None
     assert parse_date("#REF!") is None
 
@@ -27,7 +27,6 @@ def test_invalid_file_signature():
         ExcelParserService.parse_excel(fake_pdf)
 
 def test_empty_excel_without_recognized_sheets():
-    # Create an in-memory excel with a random sheet name and random columns
     buf = io.BytesIO()
     df = pd.DataFrame({"ColunaA": [1, 2], "ColunaB": ["X", "Y"]})
     with pd.ExcelWriter(buf, engine='openpyxl') as writer:
@@ -51,7 +50,6 @@ def test_excel_parser_with_sample_file(tmp_path):
     assert data["debt_control"][0]["initial_balance"] == 1000000.00
 
     assert "financial_investment" in data
-    # 3 assets x 3 date columns = 9 records
     assert len(data["financial_investment"]) == 9
 
     assert "real_estate" in data

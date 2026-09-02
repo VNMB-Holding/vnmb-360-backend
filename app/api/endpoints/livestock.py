@@ -99,7 +99,6 @@ def get_livestock_summary(
             ]
         )
 
-    # Dynamic fallback aggregation for legacy uploads without consolidated summary
     items = db.query(LivestockInventory).filter(LivestockInventory.upload_id == upload_id).all()
     if not items:
         return LivestockSummaryResponse(
@@ -124,11 +123,9 @@ def get_livestock_summary(
     tot_invest = tot_val + tot_frete + tot_comm
     v_med = (tot_val / tot_cab) if tot_cab > 0 else Decimal("0.00")
 
-    # Weighted avg weight
     tot_weight_pts = sum(float(r.total_farm_weight or 0) * (r.head_count or 0) for r in items if r.total_farm_weight)
     p_med = Decimal(str(round(tot_weight_pts / tot_cab, 2))) if tot_cab > 0 and tot_weight_pts > 0 else None
 
-    # Group by location
     loc_map = {}
     for r in items:
         loc = r.location_type or "Outros"
@@ -147,7 +144,6 @@ def get_livestock_summary(
         ) for k, v in loc_map.items()
     ]
 
-    # Group by UF
     uf_map = {}
     for r in items:
         text = f"{r.unit or ''} {r.cattle_partner or ''}".upper()
@@ -171,7 +167,6 @@ def get_livestock_summary(
         ) for k, v in uf_map.items()
     ]
 
-    # Group by Operator
     op_map = {}
     for r in items:
         op = r.cattle_partner or r.unit or "Outros"

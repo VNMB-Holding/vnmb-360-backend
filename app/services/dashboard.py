@@ -26,7 +26,6 @@ class DashboardService:
         ).scalar()
         veh_total = Decimal(str(veh_total))
 
-        # Livestock total including Freight and Commission (as in Relatório Semanal BI formula)
         log_entry = db.query(ExcelUploadLog).filter(ExcelUploadLog.id == upload_id).first()
         live_meta = (log_entry.summary_metrics or {}).get("livestock") if log_entry else None
         if live_meta and live_meta.get("investimento_total") is not None:
@@ -43,7 +42,6 @@ class DashboardService:
             ).scalar()
             live_total = Decimal(str(live_subtotal)) + Decimal(str(live_freight)) + Decimal(str(live_commission))
 
-        # Investments: use the latest reference_date snapshot (06/2026 = 481.113.840,54)
         latest_inv_date = db.query(func.max(FinancialInvestment.reference_date)).filter(
             FinancialInvestment.upload_id == upload_id
         ).scalar()
@@ -57,9 +55,7 @@ class DashboardService:
         else:
             inv_total = Decimal("0.00")
 
-        # Debts: use reference_date matching latest_inv_date (30/06/2026 = 1.302.503.762,00)
         if latest_inv_date:
-            # latest_inv_date is e.g. 2026-06-01 (date object). Match debt in same month (e.g. 2026-06-30)
             inv_year, inv_month = latest_inv_date.year, latest_inv_date.month
             debt_row = db.query(DebtControl).filter(
                 DebtControl.upload_id == upload_id,
@@ -81,7 +77,6 @@ class DashboardService:
             debt_total = Decimal("0.00")
             latest_debt_date = None
 
-        # Caixa total from FinancialInvestment if stored under 'CAIXA' asset_name
         if latest_inv_date:
             caixa_row = db.query(func.coalesce(func.sum(FinancialInvestment.amount), 0)).filter(
                 FinancialInvestment.upload_id == upload_id,
@@ -92,7 +87,6 @@ class DashboardService:
         else:
             caixa_total = Decimal("0.00")
 
-        # Net worth formula: Planilhão (debts) + Investimentos (excl duplicatas/caixa) + Imóveis + Gado + Veículos
         net_worth = debt_total + inv_total + re_total + live_total + veh_total
         return {
             "re_total": re_total,
@@ -122,7 +116,6 @@ class DashboardService:
             if log_item:
                 upload_filename = log_item.filename
 
-        # No uploads in DB at all — return all zeros, no mocks
         if upload_id is None:
             return DashboardSummaryResponse(
                 upload_id=None,
@@ -149,7 +142,6 @@ class DashboardService:
         current_data = DashboardService._compute_net_worth_for_upload(db, upload_id)
         current_nw = current_data["net_worth"]
 
-        # 1. Priorizar os pontos da tabela "EVOLUÇÃO DO PATRIMÔNIO TOTAL (SEMANAL)" se lidos no upload
         summary_metrics = {}
         log_item = db.query(ExcelUploadLog).filter(ExcelUploadLog.id == upload_id).first() if upload_id else None
         if log_item and log_item.summary_metrics:
@@ -207,7 +199,6 @@ class DashboardService:
                     )
                 )
 
-        # 2. Variação Semanal e Acumulada lidas estritamente do próprio lote (sem fórmulas de subtração/divisão sintética no backend)
         summary_metrics = {}
         log_item = db.query(ExcelUploadLog).filter(ExcelUploadLog.id == upload_id).first() if upload_id else None
         if log_item and log_item.summary_metrics:

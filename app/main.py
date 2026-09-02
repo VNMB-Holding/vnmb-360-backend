@@ -9,10 +9,8 @@ from app.api.router import api_router
 
 from sqlalchemy import text
 
-# Create database tables automatically
 Base.metadata.create_all(bind=engine)
 
-# Auto-migrate: ensure summary_metrics column exists
 with engine.connect() as conn:
     try:
         conn.execute(text("ALTER TABLE excel_upload_log ADD COLUMN summary_metrics JSON"))
@@ -30,7 +28,6 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# Enable CORS for frontend applications
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

@@ -15,7 +15,6 @@ def get_debts(
     sort_order: Literal["asc", "desc"] = Query("asc", description="Sort order by reference_date"),
     db: Session = Depends(get_db)
 ):
-    # Fallback to latest upload ONLY if upload_id query parameter is not supplied at all
     if upload_id is None:
         upload_id = db.query(func.max(ExcelUploadLog.id)).scalar()
         if upload_id is None:

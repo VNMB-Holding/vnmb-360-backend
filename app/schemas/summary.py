@@ -20,8 +20,6 @@ class DashboardSummaryResponse(BaseModel):
     total_debts: Decimal
     latest_debt_date: Optional[date] = None
     net_worth: Decimal
-    
-    # Financial metrics for executive dashboard
     weekly_variation_val: Decimal
     weekly_variation_pct: float
     accumulated_variation_val: Decimal
@@ -30,6 +28,5 @@ class DashboardSummaryResponse(BaseModel):
     cdi_weekly_pct_cdi: float
     cdi_accumulated_pp: float
     cdi_accumulated_pct_cdi: float
-    
-    # Timeline evolution
     evolution_history: List[EvolutionPoint] = []
+

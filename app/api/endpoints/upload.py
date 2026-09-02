@@ -31,38 +31,32 @@ def process_and_persist_excel(filename: str, file_bytes: bytes, db: Session) -> 
         )
 
     try:
-        # Create a new upload log batch entry
         upload_log = ExcelUploadLog(
             filename=filename,
             records_ingested={}
         )
         db.add(upload_log)
-        db.flush()  # Generate upload_log.id
+        db.flush()
 
         upload_id = upload_log.id
         counts = {}
 
-        # 1. Debt Control
         debts = [DebtControl(upload_id=upload_id, **item) for item in parsed_data.get('debt_control', [])]
         db.bulk_save_objects(debts)
         counts['debt_control'] = len(debts)
 
-        # 2. Financial Investment
         investments = [FinancialInvestment(upload_id=upload_id, **item) for item in parsed_data.get('financial_investment', [])]
         db.bulk_save_objects(investments)
         counts['financial_investment'] = len(investments)
 
-        # 3. Real Estate
         real_estates = [RealEstate(upload_id=upload_id, **item) for item in parsed_data.get('real_estate', [])]
         db.bulk_save_objects(real_estates)
         counts['real_estate'] = len(real_estates)
 
-        # 4. Livestock Inventory
         livestock = [LivestockInventory(upload_id=upload_id, **item) for item in parsed_data.get('livestock_inventory', [])]
         db.bulk_save_objects(livestock)
         counts['livestock_inventory'] = len(livestock)
 
-        # 5. Vehicle Fleet
         vehicles = [VehicleFleet(upload_id=upload_id, **item) for item in parsed_data.get('vehicle_fleet', [])]
         db.bulk_save_objects(vehicles)
         counts['vehicle_fleet'] = len(vehicles)
@@ -73,7 +67,7 @@ def process_and_persist_excel(filename: str, file_bytes: bytes, db: Session) -> 
 
         
         return {
-            "message": "Excel file uploaded and data successfully ingested into history batch.",
+            "message": "Planilha Excel processada e importada com sucesso no fechamento.",
             "upload_id": upload_id,
             "filename": filename,
             "records_ingested": counts,
@@ -114,7 +108,6 @@ def delete_upload_log(upload_id: int, db: Session = Depends(get_db)):
         )
     
     try:
-        # Explicitly delete child records to guarantee cleanup across all DB engines (SQLite, Postgres)
         db.query(DebtControl).filter(DebtControl.upload_id == upload_id).delete(synchronize_session=False)
         db.query(FinancialInvestment).filter(FinancialInvestment.upload_id == upload_id).delete(synchronize_session=False)
         db.query(RealEstate).filter(RealEstate.upload_id == upload_id).delete(synchronize_session=False)
