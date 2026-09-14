@@ -62,3 +62,18 @@ def test_excel_parser_with_sample_file(tmp_path):
 
     assert "vehicle_fleet" in data
     assert len(data["vehicle_fleet"]) == 2
+
+def test_parse_v4_file():
+    import os
+    v4_path = r"C:\Users\brenosouza-nmb\Downloads\Modelo Relatório Semanal Zé v4.xlsx"
+    if os.path.exists(v4_path):
+        with open(v4_path, "rb") as f:
+            data = ExcelParserService.parse_excel(f.read())
+        sm = data["summary_metrics"]
+        assert sm.get("recebiveis") == 2000000000.0
+        assert "category_yields" in sm
+        assert sm["category_yields"]["planilhao"]["rendim_2026"] == 0.139
+        assert sm["category_yields"]["planilhao"]["rendim_cdi_2026"] == 0.139
+        assert sm["category_yields"]["gado"]["rendim_2026"] == 0.139
+        assert sm["category_yields"]["caixa"]["rendim_2026"] == 0.139
+

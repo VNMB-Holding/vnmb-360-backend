@@ -136,7 +136,9 @@ class DashboardService:
                 cdi_weekly_pct_cdi=0.0,
                 cdi_accumulated_pp=0.0,
                 cdi_accumulated_pct_cdi=0.0,
-                evolution_history=[]
+                evolution_history=[],
+                recebiveis=None,
+                category_yields=None
             )
 
         current_data = DashboardService._compute_net_worth_for_upload(db, upload_id)
@@ -234,7 +236,9 @@ class DashboardService:
             cdi_weekly_pct_cdi=round(cdi_weekly_pct_cdi, 2),
             cdi_accumulated_pp=round(cdi_accum_pp, 2),
             cdi_accumulated_pct_cdi=round(cdi_accum_pct, 2),
-            evolution_history=evolution_points
+            evolution_history=evolution_points,
+            recebiveis=Decimal(str(summary_metrics.get("recebiveis"))) if summary_metrics.get("recebiveis") is not None else None,
+            category_yields=summary_metrics.get("category_yields")
         )
 
     @staticmethod

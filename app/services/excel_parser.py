@@ -176,9 +176,85 @@ class ExcelParserService:
             "cdi_weekly_pct_cdi": 0.0,
             "cdi_accumulated_pp": 0.0,
             "cdi_accumulated_pct_cdi": 0.0,
-            "weekly_evolution": []
+            "weekly_evolution": [],
+            "recebiveis": None,
+            "category_yields": {}
         }
 
+        # Extração de Recebíveis da aba Planilhão
+        for sname in excel_file.sheet_names:
+            if 'planilh' in sname.lower() or '1|' in sname:
+                try:
+                    df_p = pd.read_excel(excel_file, sheet_name=sname, header=None, nrows=15)
+                    for r in range(len(df_p)):
+                        for c in range(len(df_p.columns)):
+                            if normalize_str(df_p.iloc[r, c]) == 'RECEBIVEIS':
+                                for c_num in range(c + 1, len(df_p.columns)):
+                                    num_v = clean_numeric(df_p.iloc[r, c_num])
+                                    if num_v is not None and num_v > 0:
+                                        metrics["recebiveis"] = num_v
+                                        break
+                                break
+                        if metrics["recebiveis"] is not None:
+                            break
+                except Exception:
+                    pass
+                if metrics["recebiveis"] is not None:
+                    break
+
+        # Extração das taxas de rendimento por categoria da aba BI Celular
+        for sname in excel_file.sheet_names:
+            if 'celular' in sname.lower():
+                try:
+                    df_c = pd.read_excel(excel_file, sheet_name=sname, header=None, nrows=35)
+                    hdr_row = None
+                    col_cat = None
+                    col_rendim = None
+                    col_cdi = None
+                    for r in range(len(df_c)):
+                        row_vals = [normalize_str(x) for x in df_c.iloc[r].values if pd.notna(x)]
+                        if 'CATEGORIA' in row_vals and any('VALOR' in x for x in row_vals):
+                            hdr_row = r
+                            for c in range(len(df_c.columns)):
+                                c_val = normalize_str(df_c.iloc[r, c])
+                                if 'CATEGORIA' in c_val:
+                                    col_cat = c
+                                elif 'RENDIM' in c_val and 'CDI' not in c_val:
+                                    col_rendim = c
+                                elif 'CDI' in c_val and ('RENDIM' in c_val or '2026' in c_val or '%' in c_val):
+                                    col_cdi = c
+                            break
+
+                    if hdr_row is not None and col_cat is not None:
+                        cat_yields = {}
+                        for r in range(hdr_row + 1, min(hdr_row + 15, len(df_c))):
+                            cat_name = df_c.iloc[r, col_cat]
+                            if pd.isna(cat_name) or normalize_str(cat_name) == 'TOTAL':
+                                break
+                            norm_cat = normalize_str(cat_name)
+                            clean_name = str(cat_name).replace('▸', '').replace('►', '').strip()
+                            rendim_v = clean_numeric(df_c.iloc[r, col_rendim]) if col_rendim is not None else None
+                            cdi_v = clean_numeric(df_c.iloc[r, col_cdi]) if col_cdi is not None else None
+
+                            key = 'outro'
+                            if 'PLANILH' in norm_cat: key = 'planilhao'
+                            elif 'INVEST' in norm_cat: key = 'investimentos'
+                            elif 'IMOVE' in norm_cat: key = 'imoveis'
+                            elif 'GADO' in norm_cat: key = 'gado'
+                            elif 'CAIXA' in norm_cat: key = 'caixa'
+                            elif 'BENS' in norm_cat or 'MOVEIS' in norm_cat: key = 'bens_moveis'
+
+                            cat_yields[key] = {
+                                "name": clean_name,
+                                "rendim_2026": rendim_v,
+                                "rendim_cdi_2026": cdi_v
+                            }
+                        if cat_yields:
+                            metrics["category_yields"] = cat_yields
+                except Exception:
+                    pass
+
+        # Extração de variações e evolução semanal dos relatórios
         for sheet_name in excel_file.sheet_names:
             try:
                 df = pd.read_excel(excel_file, sheet_name=sheet_name, header=None, nrows=60)

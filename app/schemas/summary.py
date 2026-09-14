@@ -29,4 +29,6 @@ class DashboardSummaryResponse(BaseModel):
     cdi_accumulated_pp: float
     cdi_accumulated_pct_cdi: float
     evolution_history: List[EvolutionPoint] = []
+    recebiveis: Optional[Decimal] = None
+    category_yields: Optional[dict] = None
 
