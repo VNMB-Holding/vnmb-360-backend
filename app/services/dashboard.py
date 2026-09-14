@@ -87,7 +87,14 @@ class DashboardService:
         else:
             caixa_total = Decimal("0.00")
 
-        net_worth = debt_total + inv_total + re_total + live_total + veh_total
+        log_entry = db.query(ExcelUploadLog).filter(ExcelUploadLog.id == upload_id).first()
+        recebiveis_total = Decimal("0.00")
+        if log_entry and log_entry.summary_metrics:
+            rec_val = log_entry.summary_metrics.get("recebiveis")
+            if rec_val is not None:
+                recebiveis_total = Decimal(str(rec_val))
+
+        net_worth = debt_total + inv_total + re_total + live_total + veh_total + recebiveis_total
         return {
             "re_total": re_total,
             "veh_total": veh_total,
@@ -97,6 +104,7 @@ class DashboardService:
             "latest_inv_date": latest_inv_date,
             "debt_total": debt_total,
             "latest_debt_date": latest_debt_date,
+            "recebiveis_total": recebiveis_total,
             "net_worth": net_worth
         }
 
@@ -179,7 +187,8 @@ class DashboardService:
                     veh_v = float(current_data["veh_total"])
                     live_v = float(current_data["live_total"])
                     inv_v = float(current_data["inv_total"])
-                    total_pt = bal + re_v + veh_v + live_v + inv_v
+                    rec_v = float(current_data.get("recebiveis_total", 0))
+                    total_pt = bal + re_v + veh_v + live_v + inv_v + rec_v
 
                     val_in_millions = round(total_pt / 1_000_000.0, 2)
                     date_label = f"Semana {rec.reference_date.strftime('%d/%m')}" if rec.reference_date else f"Semana #{idx + 1}"
