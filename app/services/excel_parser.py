@@ -418,7 +418,9 @@ class ExcelParserService:
         df = pd.read_excel(excel_file, sheet_name=sheet_name, skiprows=h_idx)
 
         desc_col = next((c for c in df.columns if any(k in normalize_str(c) for k in ['DESCRICAO', 'IMOVEL', 'PROPERTY'])), df.columns[1] if len(df.columns) > 1 else df.columns[0])
-        val_col = next((c for c in df.columns if 'VALOR' in normalize_str(c)), df.columns[2] if len(df.columns) > 2 else df.columns[1])
+        val_col = next((c for c in df.columns if any(k in normalize_str(c) for k in ['VALOR TOTAL', 'LIQUIDO', 'VALOR FINAL'])), None)
+        if not val_col:
+            val_col = next((c for c in df.columns if 'VALOR' in normalize_str(c)), df.columns[2] if len(df.columns) > 2 else df.columns[1])
 
         records = []
         for _, row in df.iterrows():
