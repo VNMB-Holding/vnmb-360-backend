@@ -77,3 +77,11 @@ def test_parse_v4_file():
         assert sm["category_yields"]["gado"]["rendim_2026"] == 0.139
         assert sm["category_yields"]["caixa"]["rendim_2026"] == 0.139
 
+        aeronaves = [v for v in data["vehicle_fleet"] if "AERONAVE" in v["vehicle_description"]]
+        assert len(aeronaves) == 2
+        gulfstream = next(a for a in aeronaves if "GULFSTREAM" in a["vehicle_description"])
+        sovereign = next(a for a in aeronaves if "SOVEREIGN" in a["vehicle_description"])
+        assert gulfstream["market_value"] == 168300000.0
+        assert round(sovereign["market_value"], 2) == 16820482.07
+        assert len(data["vehicle_fleet"]) == 32
+

@@ -744,39 +744,72 @@ class ExcelParserService:
                 'insurance_type': str(row.get(col_map.get('insurance_type'), '')).strip() or None,
             })
 
-        in_aeronave_block = False
-        for _, row in df_raw.iterrows():
-            vals = [normalize_str(x) for x in row.values if pd.notna(x)]
-            if 'AERONAVE' in vals:
-                in_aeronave_block = True
-                continue
-            if in_aeronave_block:
+        # Extração dinâmica de aeronaves (tabela de AERONAVES na aba Bens Móveis)
+        hdr_row = None
+        for r in range(len(df_raw)):
+            row_vals = [normalize_str(x) for x in df_raw.iloc[r].values if pd.notna(x)]
+            if 'AERONAVE' in row_vals and any('R$' in x or 'USD' in x for x in row_vals):
+                hdr_row = r
+                break
+
+        if hdr_row is not None:
+            row_cells = df_raw.iloc[hdr_row].values
+            col_name = None
+            col_usd = None
+            col_brl_gross = None
+            col_divida = None
+            col_brl_net = None
+
+            for c, cell in enumerate(row_cells):
+                if pd.isna(cell): continue
+                nc = normalize_str(cell)
+                if 'AERONAVE' in nc:
+                    col_name = c
+                elif 'USD' in nc:
+                    col_usd = c
+                elif 'DIVIDA' in nc or 'DEBITO' in nc:
+                    col_divida = c
+                elif 'R$' in nc:
+                    if col_brl_gross is None:
+                        col_brl_gross = c
+                    else:
+                        col_brl_net = c
+
+            for r in range(hdr_row + 1, min(hdr_row + 15, len(df_raw))):
+                vals = [normalize_str(x) for x in df_raw.iloc[r].values if pd.notna(x)]
                 if any('RESUMO' in v for v in vals) or any('PROPRIETARIO' in v for v in vals):
-                    in_aeronave_block = False
                     break
-                row_list = row.values.tolist()
-                plane_name = str(row_list[2]).strip() if pd.notna(row_list[2]) else None
-                norm_plane = normalize_str(plane_name)
-                if not plane_name or norm_plane.startswith('TOTAL') or norm_plane in ['NAN', 'NONE']:
+                name_val = df_raw.iloc[r, col_name] if col_name is not None else None
+                if pd.isna(name_val) or not str(name_val).strip():
                     continue
-                    
-                usd_val = clean_numeric(row_list[9]) if len(row_list) > 9 else None
-                brl_val = clean_numeric(row_list[10]) if len(row_list) > 10 else None
-                
-                if brl_val is not None and brl_val > 0:
+                norm_name = normalize_str(name_val)
+                if norm_name.startswith('TOTAL') or norm_name in ['NAN', 'NONE']:
+                    continue
+
+                usd_val = clean_numeric(df_raw.iloc[r, col_usd]) if col_usd is not None else None
+                gross_val = clean_numeric(df_raw.iloc[r, col_brl_gross]) if col_brl_gross is not None else None
+                divida_val = clean_numeric(df_raw.iloc[r, col_divida]) if col_divida is not None else None
+                net_val = clean_numeric(df_raw.iloc[r, col_brl_net]) if col_brl_net is not None else None
+
+                if net_val is None and gross_val is not None:
+                    net_val = gross_val - (divida_val or 0.0)
+
+                final_market_value = net_val if net_val is not None else gross_val
+
+                if final_market_value is not None and final_market_value > 0:
                     records.append({
-                        'vehicle_description': f"AERONAVE - {plane_name}",
+                        'vehicle_description': f"AERONAVE - {str(name_val).strip()}",
                         'manufacture_year': None,
                         'model_year': None,
                         'age': None,
-                        'chassis': None,
-                        'license_plate': None,
+                        'chassis': f"USD {usd_val:,.0f}".replace(',', '.') if usd_val else None,
+                        'license_plate': str(name_val).strip(),
                         'risk_region': 'AÉREO',
                         'assigned_to': 'VNMB',
-                        'market_value': brl_val,
-                        'annual_premium': None,
+                        'market_value': final_market_value,
+                        'annual_premium': divida_val,
                         'iof_tax': None,
-                        'insurance_value': usd_val,
+                        'insurance_value': gross_val if gross_val is not None else usd_val,
                         'insurance_type': 'AERONAVE',
                     })
 
