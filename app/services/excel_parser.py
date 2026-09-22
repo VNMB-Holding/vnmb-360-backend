@@ -440,6 +440,11 @@ class ExcelParserService:
     def _parse_livestock(excel_file: pd.ExcelFile, sheet_name: str) -> tuple[List[Dict[str, Any]], Dict[str, Any] | None]:
         df_raw = pd.read_excel(excel_file, sheet_name=sheet_name, header=None)
 
+        # Extract header message from cell B4 (row index 3, col index 1)
+        header_message = None
+        if len(df_raw) > 3 and len(df_raw.columns) > 1 and pd.notna(df_raw.iloc[3, 1]):
+            header_message = str(df_raw.iloc[3, 1]).strip()
+
         is_consolidated = False
         for _, row in df_raw.iterrows():
             row_str = " ".join([normalize_str(x) for x in row.values if pd.notna(x)])
@@ -448,7 +453,10 @@ class ExcelParserService:
                 break
 
         if is_consolidated:
-            return ExcelParserService._parse_livestock_consolidated(df_raw)
+            records, summary = ExcelParserService._parse_livestock_consolidated(df_raw)
+            if summary is not None:
+                summary["header_message"] = header_message
+            return records, summary
         else:
             return ExcelParserService._parse_livestock_detailed(df_raw), None
 

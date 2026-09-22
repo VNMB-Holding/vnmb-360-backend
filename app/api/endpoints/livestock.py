@@ -62,6 +62,7 @@ def get_livestock_summary(
         return LivestockSummaryResponse(
             upload_id=upload_id,
             has_consolidated_summary=True,
+            header_message=live_meta.get("header_message"),
             total_cabecas=int(live_meta.get("total_cabecas") or 0),
             valor_rebanho=Decimal(str(round(live_meta.get("valor_rebanho") or 0, 2))),
             valor_medio_cabeca=Decimal(str(round(live_meta.get("valor_medio_cabeca") or 0, 2))),

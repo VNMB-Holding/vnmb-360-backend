@@ -49,6 +49,7 @@ class LivestockOperadorDistribution(BaseModel):
 class LivestockSummaryResponse(BaseModel):
     upload_id: Optional[int] = None
     has_consolidated_summary: bool = False
+    header_message: Optional[str] = None
     total_cabecas: int
     valor_rebanho: Decimal
     valor_medio_cabeca: Decimal
