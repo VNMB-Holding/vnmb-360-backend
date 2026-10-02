@@ -55,24 +55,14 @@ class DashboardService:
         else:
             inv_total = Decimal("0.00")
 
-        if latest_inv_date:
-            inv_year, inv_month = latest_inv_date.year, latest_inv_date.month
-            debt_row = db.query(DebtControl).filter(
-                DebtControl.upload_id == upload_id,
-                extract('year', DebtControl.reference_date) == inv_year,
-                extract('month', DebtControl.reference_date) == inv_month
-            ).first()
-            if not debt_row:
-                debt_row = db.query(DebtControl).filter(
-                    DebtControl.upload_id == upload_id,
-                    DebtControl.reference_date <= latest_inv_date
-                ).order_by(DebtControl.reference_date.desc()).first()
-            if debt_row and debt_row.final_balance:
-                debt_total = abs(Decimal(str(debt_row.final_balance)))
-                latest_debt_date = debt_row.reference_date
-            else:
-                debt_total = Decimal("0.00")
-                latest_debt_date = None
+        # Debts: use the latest debt record for this upload (matches what Planilhao tab displays)
+        debt_row = db.query(DebtControl).filter(
+            DebtControl.upload_id == upload_id
+        ).order_by(DebtControl.reference_date.desc()).first()
+
+        if debt_row and debt_row.final_balance:
+            debt_total = abs(Decimal(str(debt_row.final_balance)))
+            latest_debt_date = debt_row.reference_date
         else:
             debt_total = Decimal("0.00")
             latest_debt_date = None
